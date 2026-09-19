@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin</title>
+</head>
+<body>
+    <h2>Admin</h2>
+    <p><a href="/dashboard">Back to dashboard</a></p>
+    <div id="error" style="color:red;"></div>
+
+    <h3>Plans</h3>
+    <table border="1" cellpadding="6" id="plans-table">
+        <thead>
+            <tr><th>Name</th><th>Display name</th><th>Price</th><th>Features</th><th>Default</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <h4>Add a plan</h4>
+    <form id="new-plan-form">
+        <input name="name" placeholder="name (e.g. enterprise)" required>
+        <input name="display_name" placeholder="Display name" required>
+        <input name="price_display" placeholder="Price (e.g. $99/mo)" required>
+        <input name="features" placeholder="Features, comma separated">
+        <label><input type="checkbox" name="is_default"> Default plan</label>
+        <button type="submit">Create plan</button>
+    </form>
+
+    <h3>Users</h3>
+    <table border="1" cellpadding="6" id="users-table">
+        <thead><tr><th>Email</th><th>Plan</th></tr></thead>
+        <tbody></tbody>
+    </table>
+
+    <script>
+        let plans = [];
+
+        function showError(msg) {
+            document.getElementById("error").textContent = msg || "";
+        }
+
+        function featuresToList(text) {
+            return text.split(",").map((f) => f.trim()).filter(Boolean);
+        }
+
+        async function loadPlans() {
+            const res = await fetch("/subscriptions/plans");
+            plans = await res.json();
+            const tbody = document.querySelector("#plans-table tbody");
+            tbody.innerHTML = "";
+            plans.forEach((plan) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${plan.name}</td>
+                    <td>${plan.display_name}</td>
+                    <td>${plan.price_display}</td>
+                    <td>${plan.features.join(", ")}</td>
+                    <td>${plan.is_default ? "Yes" : ""}</td>
+                    <td><button data-id="${plan.id}">Delete</button></td>
+                `;
+                tr.querySelector("button").onclick = () => deletePlan(plan.id);
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadUsers() {
+            const res = await fetch("/subscriptions/admin/users");
+            if (!res.ok) {
+                showError("Couldn't load users (are you an admin?).");
+                return;
+            }
+            const users = await res.json();
+            const tbody = document.querySelector("#users-table tbody");
+            tbody.innerHTML = "";
+            users.forEach((u) => {
+                const tr = document.createElement("tr");
+                const options = plans
+                    .map(
+                        (p) =>
+                            `<option value="${p.id}" ${p.id === u.plan.id ? "selected" : ""}>${p.display_name}</option>`
+                    )
+                    .join("");
+                tr.innerHTML = `<td>${u.email}</td><td><select>${options}</select></td>`;
+                tr.querySelector("select").onchange = (e) =>
+                    setUserPlan(u.user_id, Number(e.target.value));
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function createPlan(e) {
+            e.preventDefault();
+            showError("");
+            const form = e.target;
+            const body = {
+                name: form.name.value,
+                display_name: form.display_name.value,
+                price_display: form.price_display.value,
+                features: featuresToList(form.features.value),
+                is_default: form.is_default.checked,
+            };
+            const res = await fetch("/subscriptions/admin/plans", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                showError(data.detail || "Couldn't create plan.");
+                return;
+            }
+            form.reset();
+            await loadPlans();
+            await loadUsers();
+        }
+
+        async function deletePlan(planId) {
+            showError("");
+            const res = await fetch(`/subscriptions/admin/plans/${planId}`, { method: "DELETE" });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                showError(data.detail || "Couldn't delete plan.");
+                return;
+            }
+            await loadPlans();
+            await loadUsers();
+        }
+
+        async function setUserPlan(userId, planId) {
+            showError("");
+            const res = await fetch(`/subscriptions/admin/users/${userId}/plan`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plan_id: planId }),
+            });
+            if (!res.ok) {
+                showError("Couldn't update that user's plan.");
+                return;
+            }
+            await loadUsers();
+        }
+
+        document.getElementById("new-plan-form").addEventListener("submit", createPlan);
+
+        (async () => {
+            await loadPlans();
+            await loadUsers();
+        })();
+    </script>
+</body>
+</html>

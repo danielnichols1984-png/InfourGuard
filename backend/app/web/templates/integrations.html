@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Integrations</title>
+</head>
+<body>
+    <h2>Connected accounts</h2>
+    <p><a href="/dashboard">Back to dashboard</a></p>
+    <div id="error" style="color:red;"></div>
+
+    <section>
+        <h3>Google Drive</h3>
+        <div id="google-status">Loading…</div>
+    </section>
+
+    <section>
+        <h3>Dropbox</h3>
+        <div id="dropbox-status">Loading…</div>
+    </section>
+
+    <script>
+        function showError(msg) {
+            document.getElementById("error").textContent = msg || "";
+        }
+
+        function renderProvider(provider, connected) {
+            const statusDiv = document.getElementById(`${provider}-status`);
+            const reportLink = provider === "google" ? "/google/report" : "/dropbox/report";
+            statusDiv.innerHTML = connected
+                ? `<a href="${reportLink}">View report</a> &middot; <button onclick="disconnect('${provider}')">Disconnect</button>`
+                : `<a href="/connect/${provider}"><button>Connect</button></a>`;
+        }
+
+        async function loadStatus() {
+            showError("");
+            const res = await fetch("/connect/status");
+            if (!res.ok) {
+                showError("Couldn't load integration status.");
+                return;
+            }
+            const statuses = await res.json();
+            const byProvider = Object.fromEntries(statuses.map((s) => [s.provider, s.connected]));
+            renderProvider("google", byProvider.google);
+            renderProvider("dropbox", byProvider.dropbox);
+        }
+
+        async function disconnect(provider) {
+            showError("");
+            const res = await fetch(`/connect/${provider}/disconnect`, { method: "POST" });
+            if (!res.ok) {
+                showError(`Couldn't disconnect ${provider}.`);
+                return;
+            }
+            loadStatus();
+        }
+
+        loadStatus();
+    </script>
+</body>
+</html>

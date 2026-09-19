@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+pydantic
+python-dotenv
+passlib[argon2]
+python-jose
+psycopg2-binary==2.9.13
+psycopg2-binary==2.9.13
+google-auth
+google-auth-oauthlib
+google-api-python-client
+dropbox

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard</title>
+</head>
+<body>
+    <h2>Welcome, {{ user.email }}</h2>
+
+    <p>Current plan: <strong>{{ plan.display_name }}</strong> ({{ plan.price_display }})</p>
+
+    <p><a href="/plans">Manage plan</a></p>
+    <p><a href="/integrations">Connected accounts</a></p>
+    {% if user.is_admin %}
+        <p><a href="/admin/plans">Admin</a></p>
+    {% endif %}
+
+    <form action="/auth/logout" method="post">
+        <button type="submit">Logout</button>
+    </form>
+</body>
+</html>

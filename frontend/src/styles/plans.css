@@ -1,0 +1,92 @@
+.plans-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 24px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.plans-page h1 {
+  margin-bottom: 32px;
+}
+
+.plans-error {
+  color: #dc2626;
+  margin-bottom: 20px;
+}
+
+.plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.plans-card {
+  padding: 28px 24px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.plans-card-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg), var(--shadow);
+}
+
+.plans-card h2 {
+  margin: 0 0 4px;
+}
+
+.plans-price {
+  margin: 0 0 16px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.plans-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  flex-grow: 1;
+}
+
+.plans-card li {
+  padding: 6px 0;
+  color: var(--text);
+  font-size: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.plans-card li:first-child {
+  border-top: none;
+}
+
+.plans-button {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.plans-button:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.plans-button:disabled {
+  background: var(--border);
+  color: var(--text);
+  cursor: default;
+  opacity: 1;
+}

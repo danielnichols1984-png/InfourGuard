@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Plans</title>
+</head>
+<body>
+    <h2>Choose your plan</h2>
+    <p><a href="/dashboard">Back to dashboard</a></p>
+
+    <div id="error" style="color:red;"></div>
+    <div id="plans"></div>
+
+    <script>
+        async function load() {
+            const [plansRes, meRes] = await Promise.all([
+                fetch("/subscriptions/plans"),
+                fetch("/subscriptions/me"),
+            ]);
+            const plans = await plansRes.json();
+            const me = await meRes.json();
+
+            const container = document.getElementById("plans");
+            container.innerHTML = "";
+            plans.forEach((plan) => {
+                const isCurrent = plan.id === me.plan.id;
+                const div = document.createElement("div");
+                div.style.border = "1px solid #ccc";
+                div.style.padding = "12px";
+                div.style.marginBottom = "10px";
+                div.innerHTML = `
+                    <h3>${plan.display_name} ${plan.is_default ? "(default)" : ""}</h3>
+                    <p>${plan.price_display}</p>
+                    <ul>${plan.features.map((f) => `<li>${f}</li>`).join("")}</ul>
+                `;
+                const button = document.createElement("button");
+                button.textContent = isCurrent ? "Current plan" : "Switch to this plan";
+                button.disabled = isCurrent;
+                button.onclick = () => switchPlan(plan.id);
+                div.appendChild(button);
+                container.appendChild(div);
+            });
+        }
+
+        async function switchPlan(planId) {
+            document.getElementById("error").textContent = "";
+            const res = await fetch("/subscriptions/me", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plan_id: planId }),
+            });
+            if (!res.ok) {
+                document.getElementById("error").textContent = "Couldn't switch plans.";
+                return;
+            }
+            load();
+        }
+
+        load();
+    </script>
+</body>
+</html>
