@@ -1,23 +1,26 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Organization Admin</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organization admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
 </head>
 <body>
-    <h2>Organization Admin</h2>
-    <p><a href="/dashboard">Back to dashboard</a></p>
-    <p style="color:#666; font-size:13px;">
-        Connect your organization's admin account to see tenant-wide metrics
-        (users, storage, sharing). You must be an admin of that
-        organization for the connection to actually return data — a
-        non-admin will see a clear permission error instead of a false
-        result.
-    </p>
-    <div id="error" style="color:red;"></div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Organization admin</a>
+    <div class="site-nav-links"><a href="/dashboard" class="btn btn-secondary">Home</a></div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px; max-width: 640px;">
+    <div class="alert alert-info">
+        Connect your organization's admin account to see tenant-wide metrics (users, storage, sharing). You must be an admin of that organization for the connection to actually return data — a non-admin will see a clear permission error instead of a false result.
+    </div>
+    <div id="error"></div>
 
-    <section><h3>Google Workspace</h3><div id="google_workspace-status">Loading&hellip;</div></section>
-    <section><h3>Microsoft 365</h3><div id="microsoft365-status">Loading&hellip;</div></section>
-    <section><h3>Dropbox Business</h3><div id="dropbox_business-status">Loading&hellip;</div></section>
+    <div class="card"><div class="card-title">Google Workspace</div><div id="google_workspace-status">Loading&hellip;</div></div>
+    <div class="card"><div class="card-title">Microsoft 365</div><div id="microsoft365-status">Loading&hellip;</div></div>
+    <div class="card"><div class="card-title">Dropbox Business</div><div id="dropbox_business-status">Loading&hellip;</div></div>
 
     <script>
         const LABELS = {
@@ -26,14 +29,16 @@
             dropbox_business: { name: "Dropbox Business", connectPath: "/tenants/dropbox-business", reportPage: "/organization/dropbox-business" },
         };
 
-        function showError(msg) { document.getElementById("error").textContent = msg || ""; }
+        function showError(msg) {
+            document.getElementById("error").innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : "";
+        }
 
         function renderProvider(provider, connected) {
             const statusDiv = document.getElementById(`${provider}-status`);
             const info = LABELS[provider];
             statusDiv.innerHTML = connected
-                ? `<a href="${info.reportPage}"><button>View report</button></a>`
-                : `<a href="${info.connectPath}"><button>Connect ${info.name}</button></a>`;
+                ? `<a href="${info.reportPage}" class="btn btn-primary">View report</a>`
+                : `<a href="${info.connectPath}" class="btn btn-primary">Connect ${info.name}</a>`;
         }
 
         async function loadStatus() {
@@ -49,6 +54,7 @@
 
         loadStatus();
     </script>
-    <script src="/static/js/impersonation-banner.js"></script>
+</div>
+<script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

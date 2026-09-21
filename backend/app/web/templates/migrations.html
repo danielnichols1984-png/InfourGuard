@@ -1,28 +1,35 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Migrations</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
     <style>
-        body { font-family: sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 12px; }
-        th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; font-size: 14px; }
-        th { background: #f4f4f4; }
-        section { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
-        input, select, button { padding: 5px 8px; margin: 2px 4px 2px 0; }
-        .error { color: #b00020; }
-        .muted { color: #666; font-size: 13px; }
-        #job-detail { border: 1px solid #ccc; padding: 16px; border-radius: 8px; }
-        pre { background: #111; color: #eee; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
+        .error { color: var(--danger); }
+        .muted { color: var(--ink-500); font-size: 13px; }
+        pre { background: var(--ink-900); color: var(--ink-50); padding: 14px; border-radius: 10px; overflow-x: auto; white-space: pre-wrap; font-size: 13px; }
+        .job-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .job-form label { font-size: 13px; color: var(--ink-700); display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
+        .job-form select, .job-form input { width: auto; }
+        #jobs-table td button, #mappings-table td button { margin: 2px; }
+        #add-mapping-form, #email-report-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+        #add-mapping-form input, #schedule-form input { width: auto; }
+        #job-actions button, #job-actions form { margin: 4px 6px 4px 0; }
     </style>
 </head>
 <body>
-    <h2>Migrations</h2>
-    <p><a href="/dashboard">Back to dashboard</a></p>
-    <div id="error" class="error"></div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Migrations</a>
+    <div class="site-nav-links"><a href="/dashboard" class="btn btn-secondary">Home</a></div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div id="error"></div>
 
-    <section>
-        <h3>New migration job</h3>
-        <form id="new-job-form">
+    <div class="card">
+        <div class="card-title">New migration job</div>
+        <form id="new-job-form" class="job-form">
             <label>Source
                 <select name="source_provider">
                     <option value="dropbox">Dropbox</option>
@@ -40,29 +47,32 @@
             <label>Notify email (optional)
                 <input type="email" name="notify_email" placeholder="you@example.com">
             </label>
-            <button type="submit">Create job</button>
+            <button type="submit" class="btn btn-primary">Create job</button>
         </form>
-    </section>
+    </div>
 
-    <section>
-        <h3>Jobs</h3>
-        <table id="jobs-table">
-            <thead>
-                <tr><th>#</th><th>Route</th><th>Status</th><th>Scheduled</th><th></th></tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </section>
+    <div class="card">
+        <div class="card-title">Jobs</div>
+        <div class="table-responsive">
+            <table id="jobs-table">
+                <thead>
+                    <tr><th>#</th><th>Route</th><th>Status</th><th>Scheduled</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
 
-    <section id="job-detail-section" style="display:none;">
+    <div id="job-detail-section" class="card" style="display:none;">
         <div id="job-detail"></div>
-    </section>
+    </div>
+</div>
 
     <script>
         let me = null;
         let selectedJobId = null;
 
-        function showError(msg) { document.getElementById("error").textContent = msg || ""; }
+        function showError(msg) { document.getElementById("error").innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : ""; }
 
         async function api(path, options) {
             const res = await fetch(path, {
@@ -95,8 +105,8 @@
                     <td>${job.status}</td>
                     <td>${job.scheduled_at ? new Date(job.scheduled_at).toLocaleString() : "-"}</td>
                     <td>
-                        <button data-manage="${job.id}">Manage</button>
-                        ${canDelete ? `<button data-delete="${job.id}">Delete</button>` : ""}
+                        <button class="btn btn-secondary" data-manage="${job.id}">Manage</button>
+                        ${canDelete ? `<button class="btn btn-danger" data-delete="${job.id}">Delete</button>` : ""}
                     </td>
                 `;
                 tr.querySelector("[data-manage]").onclick = () => selectJob(job.id);
@@ -140,18 +150,20 @@
 
             const detail = document.getElementById("job-detail");
             detail.innerHTML = `
-                <h4>Job #${job.id}: ${job.source_provider} &rarr; ${job.destination_provider}</h4>
+                <div class="card-title">Job #${job.id}: ${job.source_provider} &rarr; ${job.destination_provider}</div>
                 <p>Status: <strong>${job.status}</strong>
                    ${job.scheduled_at ? ` &mdash; scheduled for ${new Date(job.scheduled_at).toLocaleString()}` : ""}
                 </p>
 
-                <h5>User mappings</h5>
+                <h5 style="margin-top: 16px; margin-bottom: 8px; font-size: 14px; font-weight: 700;">User mappings</h5>
+                <div class="table-responsive">
                 <table id="mappings-table">
                     <thead>
                         <tr><th>Source user</th><th>Dest user</th><th>Source root</th><th>Dest root</th><th>Status</th><th>Stats</th><th></th></tr>
                     </thead>
                     <tbody></tbody>
                 </table>
+                </div>
 
                 ${job.status === "draft" || job.status === "mapped" ? `
                 <form id="add-mapping-form">
@@ -159,7 +171,7 @@
                     <input type="number" name="destination_user_id" placeholder="Destination user id" value="${me.id}" required>
                     <input type="text" name="source_root_path" placeholder="Source folder (blank = everything)">
                     <input type="text" name="destination_root_path" placeholder="Destination folder">
-                    <button type="submit">Add mapping</button>
+                    <button type="submit" class="btn btn-primary">Add mapping</button>
                 </form>
                 <p class="muted">${me.is_admin ? "As an admin, you can map any two users." : "You can only map yourself — migrating your own connected accounts."}</p>
                 ` : ""}
@@ -180,7 +192,7 @@
                     <td>${m.status}${m.error ? ` <span class="error">(${m.error})</span>` : ""}</td>
                     <td class="muted">${stats}</td>
                     <td>
-                        ${job.status === "draft" || job.status === "mapped" ? `<button data-remove="${m.id}">Remove</button>` : `<button data-items="${m.id}">Items</button>`}
+                        ${job.status === "draft" || job.status === "mapped" ? `<button class="btn btn-danger" data-remove="${m.id}">Remove</button>` : `<button class="btn btn-secondary" data-items="${m.id}">Items</button>`}
                     </td>
                 `;
                 const removeBtn = tr.querySelector("[data-remove]");
@@ -201,47 +213,47 @@
             let html = "";
 
             if (job.status === "mapped" && mappings.length > 0) {
-                html += `<button id="prestage-btn">Run pre-stage</button>`;
+                html += `<button id="prestage-btn" class="btn btn-primary">Run pre-stage</button>`;
             }
             if (job.status === "prestaging") {
-                html += `<p class="muted">Pre-staging in progress&hellip; <button id="refresh-btn">Refresh</button></p>`;
+                html += `<p class="muted">Pre-staging in progress&hellip; <button id="refresh-btn" class="btn btn-secondary">Refresh</button></p>`;
             }
             if (job.status === "prestaged") {
                 html += `
-                    <button id="run-btn">Run now</button>
+                    <button id="run-btn" class="btn btn-primary">Run now</button>
                     <form id="schedule-form" style="display:inline;">
                         <input type="datetime-local" name="scheduled_at" required>
-                        <button type="submit">Schedule</button>
+                        <button type="submit" class="btn btn-secondary">Schedule</button>
                     </form>
                 `;
             }
             if (job.status === "scheduled") {
-                html += `<button id="unschedule-btn">Unschedule</button>`;
+                html += `<button id="unschedule-btn" class="btn btn-secondary">Unschedule</button>`;
             }
             if (job.status === "running") {
-                html += `<p class="muted">Migration running&hellip; <button id="refresh-btn">Refresh</button></p>`;
+                html += `<p class="muted">Migration running&hellip; <button id="refresh-btn" class="btn btn-secondary">Refresh</button></p>`;
             }
             if (job.status === "failed") {
                 // "failed" at the job level means pre-stage itself couldn't list
                 // the source for any mapping — nothing was ever run, so the fix
                 // is to retry pre-stage, not the copy.
                 html += `
-                    <p class="error">Pre-stage failed for every mapping (see errors above). Fix the underlying issue, then retry pre-stage.</p>
-                    <button id="prestage-btn">Retry pre-stage</button>
+                    <div class="alert alert-error">Pre-stage failed for every mapping (see errors above). Fix the underlying issue, then retry pre-stage.</div>
+                    <button id="prestage-btn" class="btn btn-primary">Retry pre-stage</button>
                 `;
             }
             if (job.status === "completed" || job.status === "completed_with_errors") {
                 if (job.status === "completed_with_errors") {
-                    html += `<p class="error">Some items failed (see the mapping error/stats above, or Items for detail). Already-copied items are skipped on retry.</p>
-                              <button id="run-again-btn">Run again</button> `;
+                    html += `<div class="alert alert-error">Some items failed (see the mapping error/stats above, or Items for detail). Already-copied items are skipped on retry.</div>
+                              <button id="run-again-btn" class="btn btn-primary">Run again</button> `;
                 }
                 html += `
-                    <button id="report-btn">View report</button>
-                    <button id="recreate-shares-btn">Recreate share links</button>
-                    <button id="archive-btn">Archive</button>
+                    <button id="report-btn" class="btn btn-secondary">View report</button>
+                    <button id="recreate-shares-btn" class="btn btn-secondary">Recreate share links</button>
+                    <button id="archive-btn" class="btn btn-secondary">Archive</button>
                     <form id="email-report-form" style="display:inline;">
                         <input type="email" name="email" placeholder="Email report to&hellip;" required>
-                        <button type="submit">Send</button>
+                        <button type="submit" class="btn btn-primary">Send</button>
                     </form>
                 `;
             }
@@ -340,11 +352,13 @@
                     </tr>
                 `).join("");
                 document.getElementById("job-report").innerHTML = `
-                    <h5>Items for mapping #${mappingId}</h5>
+                    <h5 style="margin-top: 16px; margin-bottom: 8px; font-size: 14px; font-weight: 700;">Items for mapping #${mappingId}</h5>
+                    <div class="table-responsive">
                     <table>
                         <thead><tr><th>Path</th><th>Type</th><th>Status</th><th>Size</th><th>Verified</th><th>Shared</th><th>Error</th></tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
+                    </div>
                 `;
             } catch (e) {
                 showError(e.message);
@@ -355,7 +369,7 @@
             showError("");
             try {
                 const { report_text } = await api(`/migrations/jobs/${selectedJobId}/report`);
-                document.getElementById("job-report").innerHTML = `<h5>Report</h5><pre>${report_text}</pre>`;
+                document.getElementById("job-report").innerHTML = `<h5 style="margin-top: 16px; margin-bottom: 8px; font-size: 14px; font-weight: 700;">Report</h5><pre>${report_text}</pre>`;
             } catch (e) {
                 showError(e.message);
             }

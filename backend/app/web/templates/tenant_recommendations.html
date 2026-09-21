@@ -4,70 +4,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ provider_label }} Recommendations</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/tenant_report.css">
-    <style>
-        :root {
-            {% if provider == "microsoft365" %}--primary: #0078d4; --primary-dark: #005a9e; --primary-light: #eff6fc;
-            {% elif provider == "google-workspace" %}--primary: #1a73e8; --primary-dark: #1558b0; --primary-light: #e8f0fe;
-            {% else %}--primary: #0061ff; --primary-dark: #0050d4; --primary-light: #f0f5ff;{% endif %}
-        }
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
 </head>
 <body>
-<div class="container">
-    <div class="top-nav">
-        <div class="brand-section">
-            <div class="logo-icon">💡</div>
-            <div class="brand-info">
-                <h1>{{ provider_label }}</h1>
-                <p>Recommendations</p>
-            </div>
-        </div>
-        <div class="nav-actions">
-            <a href="/tenants" class="btn btn-outline">Organization Admin</a>
-            <a href="/dashboard" class="btn btn-outline">Home</a>
-        </div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>{{ provider_label }}</a>
+    <div class="site-nav-links">
+        <a href="/tenants" class="btn btn-secondary">Organization Admin</a>
+        <a href="/dashboard" class="btn btn-secondary">Home</a>
     </div>
-
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
     <div class="tab-nav">
         <a href="/organization/{{ provider }}" class="tab-link">Overview</a>
-        <a href="/organization/{{ provider }}/security" class="tab-link">Security &amp; Risks</a>
-        <a href="/organization/{{ provider }}/documents" class="tab-link">Shared Documents</a>
-        <a href="/organization/{{ provider }}/storage" class="tab-link">Storage &amp; Growth</a>
+        <a href="/organization/{{ provider }}/security" class="tab-link">Security</a>
+        <a href="/organization/{{ provider }}/documents" class="tab-link">Documents</a>
+        <a href="/organization/{{ provider }}/storage" class="tab-link">Storage</a>
         <a href="/organization/{{ provider }}/recommendations" class="tab-link active">Recommendations</a>
     </div>
 
     {% if not connected %}
     <div class="card empty-placeholder">
-        <h3>{{ provider_label }} Not Connected</h3>
+        <h3>{{ provider_label }} not connected</h3>
         <p>Connect this organization from the Overview tab first.</p>
-        <a href="/organization/{{ provider }}" class="btn btn-primary" style="margin-top:12px;">Go to Overview</a>
+        <a href="/organization/{{ provider }}" class="btn btn-primary">Go to Overview</a>
     </div>
     {% elif error %}
     <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
+    {% elif not recommendations %}
+    <div class="card empty-placeholder">
+        <h3>Nothing to flag right now</h3>
+        <p>Either everything checked out, or the underlying data couldn't be fetched — check the Security and Storage tabs for details.</p>
+    </div>
     {% else %}
-
-    {% if recommendations %}
     {% for rec in recommendations %}
     <div class="recommendation-card severity-{{ rec.severity }}">
-        <div class="recommendation-title">
-            {% if rec.severity == "high" %}🔴{% elif rec.severity == "medium" %}🟠{% else %}🔵{% endif %}
-            {{ rec.title }}
-        </div>
-        <div class="recommendation-detail">{{ rec.detail }}</div>
+        <h4><span class="badge severity-{{ rec.severity }}">{{ rec.severity }}</span> {{ rec.title }}</h4>
+        <p>{{ rec.detail }}</p>
     </div>
     {% endfor %}
-    {% else %}
-    <div class="card empty-placeholder">
-        <h3>No recommendations right now</h3>
-        <p>Either everything checked out, or the underlying data couldn't be fetched — check the Security &amp; Risks and Storage tabs for details.</p>
-    </div>
-    {% endif %}
     {% endif %}
 </div>
-    <script src="/static/js/impersonation-banner.js"></script>
+<script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

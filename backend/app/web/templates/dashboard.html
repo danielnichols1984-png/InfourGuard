@@ -1,33 +1,95 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        .inline-form { display: inline; }
+        .hub-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+        .hub-header h1 { font-size: 24px; font-weight: 800; }
+        .hub-header p { color: var(--ink-500); font-size: 14px; margin-top: 4px; }
+        .section-label-left { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-400); margin: 28px 0 12px; }
+        .feature-card { text-decoration: none; display: block; color: inherit; }
+        .feature-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }
+    </style>
 </head>
 <body>
-    <h2>Welcome, {{ user.email }}</h2>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Cloudscope</a>
+    <div class="site-nav-links">
+        <form action="/auth/logout" method="post" class="inline-form"><button type="submit" class="btn btn-secondary">Log out</button></form>
+    </div>
+</nav>
+<div class="container" style="padding-top: 32px; padding-bottom: 64px;">
+    <div class="hub-header">
+        <div>
+            <h1>Welcome, {{ user.email }}</h1>
+            {% if not user.is_admin %}
+            <p>Current plan: <strong>{{ plan.display_name }}</strong> ({{ plan.price_display }}) — <a href="/plans" style="color: var(--primary); font-weight: 600;">Manage plan</a></p>
+            {% endif %}
+        </div>
+    </div>
 
-    {% if not user.is_admin %}
-        <p>Current plan: <strong>{{ plan.display_name }}</strong> ({{ plan.price_display }})</p>
-        <p><a href="/plans">Manage plan</a></p>
-    {% endif %}
-    <p><a href="/integrations">Connected accounts</a></p>
-    <p><a href="/migrations">Migrations</a></p>
-    {% if has_org_access %}
-        <p><a href="/tenants">Organization admin</a></p>
-    {% endif %}
-    {% if business %}
-        <p><a href="/business">My Business</a></p>
-    {% endif %}
-    {% if user.is_admin %}
-        <p><a href="/admin/plans">Manage plans</a> &middot; <a href="/admin/users">Individual Users</a> &middot; <a href="/admin/businesses">Business Accounts</a></p>
-    {% endif %}
-    {% if user.is_site_admin or user.is_admin %}
-        <p><a href="/admin/content">Edit homepage (CMS)</a></p>
-    {% endif %}
+    <div class="feature-grid">
+        <a href="/integrations" class="card feature-card">
+            <div class="icon">&#9729;</div>
+            <h3>Connected accounts</h3>
+            <p>Google Drive, Dropbox, and OneDrive reports for your own account.</p>
+        </a>
+        <a href="/migrations" class="card feature-card">
+            <div class="icon">&#8635;</div>
+            <h3>Migrations</h3>
+            <p>Move files between your connected cloud accounts.</p>
+        </a>
+        {% if has_org_access %}
+        <a href="/tenants" class="card feature-card">
+            <div class="icon">&#127970;</div>
+            <h3>Organization admin</h3>
+            <p>Google Workspace, Microsoft 365, and Dropbox Business reporting.</p>
+        </a>
+        {% endif %}
+        {% if business %}
+        <a href="/business" class="card feature-card">
+            <div class="icon">&#128101;</div>
+            <h3>My Business</h3>
+            <p>Manage your organization's members and roles.</p>
+        </a>
+        {% endif %}
+    </div>
 
-    <form action="/auth/logout" method="post">
-        <button type="submit">Logout</button>
-    </form>
-    <script src="/static/js/impersonation-banner.js"></script>
+    {% if user.is_admin or user.is_site_admin %}
+    <div class="section-label-left">Admin</div>
+    <div class="feature-grid">
+        {% if user.is_admin %}
+        <a href="/admin/plans" class="card feature-card">
+            <div class="icon">&#128179;</div>
+            <h3>Plans &amp; payments</h3>
+            <p>Manage plan definitions and confirm pending payments.</p>
+        </a>
+        <a href="/admin/users" class="card feature-card">
+            <div class="icon">&#128100;</div>
+            <h3>Individual users</h3>
+            <p>Manage every user account on the platform.</p>
+        </a>
+        <a href="/admin/businesses" class="card feature-card">
+            <div class="icon">&#127970;</div>
+            <h3>Business accounts</h3>
+            <p>Full override into any organization's members and roles.</p>
+        </a>
+        {% endif %}
+        {% if user.is_site_admin or user.is_admin %}
+        <a href="/admin/content" class="card feature-card">
+            <div class="icon">&#9998;</div>
+            <h3>Edit homepage</h3>
+            <p>Change the public marketing site's copy.</p>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+<script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

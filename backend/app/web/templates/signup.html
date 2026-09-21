@@ -1,57 +1,91 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Signup</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign up</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
+        .auth-card { width: 100%; max-width: 440px; }
+        .auth-card .brand { justify-content: center; margin-bottom: 24px; }
+        .auth-card h1 { font-size: 22px; font-weight: 800; text-align: center; margin-bottom: 24px; }
+        .auth-card form > * + * { margin-top: 14px; }
+        .auth-card .btn { width: 100%; margin-top: 6px; }
+        .auth-footer { text-align: center; margin-top: 18px; font-size: 14px; color: var(--ink-600); }
+        .plan-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--ink-200); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+        .plan-option:has(input:checked) { border-color: var(--primary); background: var(--primary-light); }
+        .plan-option input { width: auto; margin-top: 3px; }
+        .plan-option .plan-name { font-weight: 700; font-size: 14px; }
+        .plan-option .plan-price { font-size: 13px; color: var(--ink-500); }
+        #billing-fields .card-title { margin-top: 4px; }
+    </style>
 </head>
 <body>
-    <h2>Create Account</h2>
-    <div id="error" style="color:red;"></div>
+<div class="auth-wrap">
+    <div class="auth-card">
+        <a href="/" class="brand"><span class="brand-mark"></span>Cloudscope</a>
+        <div class="card">
+            <h1>Create your account</h1>
+            <div id="error"></div>
 
-    <form id="signup-form">
-        <label>Email:</label><br>
-        <input type="email" name="email" required><br><br>
+            <form id="signup-form">
+                <div>
+                    <label class="field-label" for="email">Email</label>
+                    <input type="email" id="email" name="email" required>
+                </div>
+                <div>
+                    <label class="field-label" for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
 
-        <label>Password:</label><br>
-        <input type="password" name="password" required><br><br>
+                <div>
+                    <label class="field-label">Choose your plan</label>
+                    <div id="plan-options">Loading&hellip;</div>
+                </div>
 
-        <h3>Choose your plan</h3>
-        <div id="plan-options">Loading&hellip;</div>
+                <div id="billing-fields" style="display:none;">
+                    <div class="card-title">Billing details</div>
+                    <div>
+                        <label class="field-label">Payment method</label>
+                        <select name="method">
+                            <option value="cash">Pay with cash</option>
+                            <option value="card" disabled>Credit/debit card (coming soon)</option>
+                        </select>
+                    </div>
+                    <div id="business-name-field" style="display:none;">
+                        <label class="field-label">Organization name</label>
+                        <input name="business_name" placeholder="You'll be its admin">
+                    </div>
+                    <input class="billing-required" name="billing_name" placeholder="Full name">
+                    <input class="billing-required" type="email" name="billing_email" placeholder="Billing email">
+                    <input name="billing_phone" placeholder="Phone (optional)">
+                    <input name="company_name" placeholder="Company name (optional)">
+                    <input class="billing-required" name="billing_address_line1" placeholder="Address line 1">
+                    <input name="billing_address_line2" placeholder="Address line 2 (optional)">
+                    <input class="billing-required" name="billing_city" placeholder="City">
+                    <input name="billing_state" placeholder="State/province">
+                    <input name="billing_zip" placeholder="ZIP/postal code">
+                    <input class="billing-required" name="billing_country" placeholder="Country">
+                    <textarea name="notes" placeholder="Notes (optional)"></textarea>
+                    <div class="alert alert-info">Your account is created right away on the Free plan; this plan activates once an admin confirms your cash payment.</div>
+                </div>
 
-        <div id="billing-fields" style="display:none; margin-top:10px;">
-            <p><label>Method:
-                <select name="method">
-                    <option value="cash">Pay with cash</option>
-                    <option value="card" disabled>Credit/debit card (coming soon)</option>
-                </select>
-            </label></p>
-            <p><input class="billing-required" name="billing_name" placeholder="Full name"></p>
-            <p><input class="billing-required" type="email" name="billing_email" placeholder="Billing email"></p>
-            <p><input name="billing_phone" placeholder="Phone (optional)"></p>
-            <p><input name="company_name" placeholder="Company name (optional)"></p>
-            <p><input class="billing-required" name="billing_address_line1" placeholder="Address line 1"></p>
-            <p><input name="billing_address_line2" placeholder="Address line 2 (optional)"></p>
-            <p><input class="billing-required" name="billing_city" placeholder="City"></p>
-            <p><input name="billing_state" placeholder="State/province"></p>
-            <p><input name="billing_zip" placeholder="ZIP/postal code"></p>
-            <p><input class="billing-required" name="billing_country" placeholder="Country"></p>
-            <p><textarea name="notes" placeholder="Notes (optional)"></textarea></p>
-            <p style="color:#666; font-size:13px;">
-                Your account is created right away on the Free plan; this plan
-                activates once an admin confirms your cash payment.
-            </p>
+                <button type="submit" class="btn btn-primary">Create account</button>
+            </form>
         </div>
-
-        <button type="submit">Create Account</button>
-    </form>
-
-    <p>Already have an account? <a href="/login">Login</a></p>
+        <p class="auth-footer">Already have an account? <a href="/login" style="color: var(--primary); font-weight: 600;">Log in</a></p>
+    </div>
+</div>
 
     <script>
         let plans = [];
         let selectedPlanId = null;
 
         function showError(msg) {
-            document.getElementById("error").textContent = msg || "";
+            const box = document.getElementById("error");
+            box.innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : "";
         }
 
         async function loadPlans() {
@@ -61,9 +95,12 @@
             container.innerHTML = plans
                 .map(
                     (p) => `
-                        <label style="display:block; margin-bottom:6px;">
+                        <label class="plan-option">
                             <input type="radio" name="plan" value="${p.id}" ${p.is_default ? "checked" : ""}>
-                            ${p.display_name} — ${p.price_display}
+                            <span>
+                                <div class="plan-name">${p.display_name}${p.is_business_plan ? " — Business" : ""}</div>
+                                <div class="plan-price">${p.price_display}</div>
+                            </span>
                         </label>
                     `
                 )
@@ -84,6 +121,7 @@
             const plan = plans.find((p) => p.id === selectedPlanId);
             const needsBilling = plan && !plan.is_default;
             document.getElementById("billing-fields").style.display = needsBilling ? "block" : "none";
+            document.getElementById("business-name-field").style.display = plan && plan.is_business_plan ? "block" : "none";
             document.querySelectorAll(".billing-required").forEach((input) => {
                 input.required = needsBilling;
             });
@@ -136,6 +174,7 @@
                         billing_email: form.get("billing_email"),
                         billing_phone: form.get("billing_phone") || undefined,
                         company_name: form.get("company_name") || undefined,
+                        business_name: form.get("business_name") || undefined,
                         billing_address_line1: form.get("billing_address_line1"),
                         billing_address_line2: form.get("billing_address_line2") || undefined,
                         billing_city: form.get("billing_city"),

@@ -1,33 +1,57 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin: Business Accounts</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        #businesses-table td button, #detail td button { margin: 2px; }
+        .new-business-form { display: flex; gap: 10px; flex-wrap: wrap; }
+        .new-business-form input { width: auto; flex: 1; min-width: 200px; }
+    </style>
 </head>
 <body>
-    <h2>Admin: Business Accounts</h2>
-    <p><a href="/dashboard">Back to dashboard</a> &middot; <a href="/admin/users">Individual Users</a></p>
-    <div id="error" style="color:red;"></div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Admin</a>
+    <div class="site-nav-links"><a href="/dashboard" class="btn btn-secondary">Home</a></div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div class="tab-nav">
+        <a href="/admin/plans" class="tab-link">Plans</a>
+        <a href="/admin/users" class="tab-link">Individual Users</a>
+        <a href="/admin/businesses" class="tab-link active">Business Accounts</a>
+    </div>
+    <div id="error"></div>
 
-    <h3>Businesses</h3>
-    <table border="1" cellpadding="6" id="businesses-table">
-        <thead>
-            <tr><th>ID</th><th>Name</th><th>Members</th><th></th></tr>
-        </thead>
-        <tbody></tbody>
-    </table>
+    <div class="card">
+        <div class="card-title">Businesses</div>
+        <div class="table-responsive">
+            <table id="businesses-table">
+                <thead>
+                    <tr><th>ID</th><th>Name</th><th>Members</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
 
-    <h4>Create a business</h4>
-    <form id="new-business-form">
-        <input name="name" placeholder="Business name" required>
-        <input type="email" name="admin_email" placeholder="Business admin's email (must already have an account)" required>
-        <button type="submit">Create business</button>
-    </form>
+    <div class="card">
+        <div class="card-title">Create a business</div>
+        <form id="new-business-form" class="new-business-form">
+            <input name="name" placeholder="Business name" required>
+            <input type="email" name="admin_email" placeholder="Business admin's email (must already have an account)" required>
+            <button type="submit" class="btn btn-primary">Create business</button>
+        </form>
+    </div>
 
-    <div id="detail" style="margin-top:20px;"></div>
+    <div id="detail"></div>
+</div>
 
     <script>
         function showError(msg) {
-            document.getElementById("error").textContent = msg || "";
+            document.getElementById("error").innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : "";
         }
 
         async function api(path, options) {
@@ -53,8 +77,8 @@
                     <td>${b.name}</td>
                     <td>${b.member_count}</td>
                     <td>
-                        <button data-view="${b.id}">View members</button>
-                        <button data-delete="${b.id}">Delete</button>
+                        <button class="btn btn-secondary" data-view="${b.id}">View members</button>
+                        <button class="btn btn-danger" data-delete="${b.id}">Delete</button>
                     </td>
                 `;
                 tr.querySelector("[data-view]").onclick = () => viewMembers(b.id, b.name);
@@ -69,29 +93,33 @@
             try {
                 const members = await api(`/businesses/admin/businesses/${businessId}/members`);
                 detail.innerHTML = `
-                    <h3>${name} — members</h3>
-                    <table border="1" cellpadding="6">
-                        <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
-                        <tbody>
-                            ${members.map((m) => {
-                                const otherRole = m.role === "business_admin" ? "member" : "business_admin";
-                                const roleLabel = otherRole === "business_admin" ? "Make admin" : "Make member";
-                                return `
-                                <tr>
-                                    <td>${m.email}</td>
-                                    <td>${m.role}</td>
-                                    <td>
-                                        <button data-role="${m.user_id}" data-new-role="${otherRole}">${roleLabel}</button>
-                                        <button data-view-as="${m.user_id}">View as</button>
-                                        <button data-reset="${m.user_id}" data-email="${m.email}">Reset password</button>
-                                        <button data-tenant-report="${m.user_id}" data-email="${m.email}">Email tenant report</button>
-                                        <button data-remove="${m.user_id}">Remove</button>
-                                    </td>
-                                </tr>
-                            `;
-                            }).join("")}
-                        </tbody>
-                    </table>
+                    <div class="card">
+                        <div class="card-title">${name} — members</div>
+                        <div class="table-responsive">
+                        <table>
+                            <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+                            <tbody>
+                                ${members.map((m) => {
+                                    const otherRole = m.role === "business_admin" ? "member" : "business_admin";
+                                    const roleLabel = otherRole === "business_admin" ? "Make admin" : "Make member";
+                                    return `
+                                    <tr>
+                                        <td>${m.email}</td>
+                                        <td>${m.role}</td>
+                                        <td>
+                                            <button class="btn btn-secondary" data-role="${m.user_id}" data-new-role="${otherRole}">${roleLabel}</button>
+                                            <button class="btn btn-secondary" data-view-as="${m.user_id}">View as</button>
+                                            <button class="btn btn-secondary" data-reset="${m.user_id}" data-email="${m.email}">Reset password</button>
+                                            <button class="btn btn-secondary" data-tenant-report="${m.user_id}" data-email="${m.email}">Email tenant report</button>
+                                            <button class="btn btn-danger" data-remove="${m.user_id}">Remove</button>
+                                        </td>
+                                    </tr>
+                                `;
+                                }).join("")}
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
                 `;
                 detail.querySelectorAll("[data-tenant-report]").forEach((btn) => {
                     btn.onclick = () => emailTenantReport(btn.dataset.tenantReport, btn.dataset.email);

@@ -1,47 +1,75 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Plans</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        .plan-card { display: flex; flex-direction: column; }
+        .plan-card .plan-price { font-size: 22px; font-weight: 800; margin: 4px 0 12px; }
+        .plan-card ul { list-style: none; margin-bottom: 16px; flex: 1; }
+        .plan-card li { font-size: 14px; color: var(--ink-600); padding: 4px 0; }
+        .plan-card li:before { content: "✓ "; color: var(--success); font-weight: 700; }
+        .checkout-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); z-index: 30; align-items: center; justify-content: center; padding: 24px; }
+        .checkout-overlay.open { display: flex; }
+        .checkout-modal { background: white; max-width: 440px; width: 100%; padding: 28px; border-radius: var(--radius); max-height: 90vh; overflow-y: auto; }
+        .checkout-modal h3 { font-size: 18px; font-weight: 800; margin-bottom: 16px; }
+        .checkout-modal form > * + * { margin-top: 12px; }
+        .checkout-modal .btn-row { display: flex; gap: 10px; margin-top: 16px; }
+    </style>
 </head>
 <body>
-    <h2>Choose your plan</h2>
-    <p><a href="/dashboard">Back to dashboard</a></p>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Plans</a>
+    <div class="site-nav-links"><a href="/dashboard" class="btn btn-secondary">Home</a></div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div id="error"></div>
+    <div id="plans" class="feature-grid"></div>
+</div>
 
-    <div id="error" style="color:red;"></div>
-    <div id="plans"></div>
-
-    <div id="checkout-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4);">
-        <div style="background:#fff; max-width:420px; margin:40px auto; padding:20px; border-radius:8px;">
-            <h3>Checkout — <span id="checkout-plan-name"></span></h3>
-            <form id="checkout-form">
-                <p><label>Method:
-                    <select name="method">
-                        <option value="cash">Pay with cash</option>
-                        <option value="card" disabled>Credit/debit card (coming soon)</option>
-                    </select>
-                </label></p>
-                <p><input name="billing_name" placeholder="Full name" required></p>
-                <p><input type="email" name="billing_email" placeholder="Billing email" required></p>
-                <p><input name="billing_phone" placeholder="Phone (optional)"></p>
-                <p><input name="company_name" placeholder="Company name (optional)"></p>
-                <p id="business-name-field" style="display:none;">
-                    <input name="business_name" placeholder="Organization name (you'll be its admin)">
-                </p>
-                <p><input name="billing_address_line1" placeholder="Address line 1" required></p>
-                <p><input name="billing_address_line2" placeholder="Address line 2 (optional)"></p>
-                <p><input name="billing_city" placeholder="City" required></p>
-                <p><input name="billing_state" placeholder="State/province"></p>
-                <p><input name="billing_zip" placeholder="ZIP/postal code"></p>
-                <p><input name="billing_country" placeholder="Country" required></p>
-                <p><textarea name="notes" placeholder="Notes (optional)"></textarea></p>
-                <button type="submit">Submit order</button>
-                <button type="button" id="checkout-cancel">Cancel</button>
-            </form>
-        </div>
+<div id="checkout-modal" class="checkout-overlay">
+    <div class="checkout-modal">
+        <h3>Checkout — <span id="checkout-plan-name"></span></h3>
+        <form id="checkout-form">
+            <div>
+                <label class="field-label">Payment method</label>
+                <select name="method">
+                    <option value="cash">Pay with cash</option>
+                    <option value="card" disabled>Credit/debit card (coming soon)</option>
+                </select>
+            </div>
+            <div id="business-name-field" style="display:none;">
+                <label class="field-label">Organization name</label>
+                <input name="business_name" placeholder="You'll be its admin">
+            </div>
+            <input name="billing_name" placeholder="Full name" required>
+            <input type="email" name="billing_email" placeholder="Billing email" required>
+            <input name="billing_phone" placeholder="Phone (optional)">
+            <input name="company_name" placeholder="Company name (optional)">
+            <input name="billing_address_line1" placeholder="Address line 1" required>
+            <input name="billing_address_line2" placeholder="Address line 2 (optional)">
+            <input name="billing_city" placeholder="City" required>
+            <input name="billing_state" placeholder="State/province">
+            <input name="billing_zip" placeholder="ZIP/postal code">
+            <input name="billing_country" placeholder="Country" required>
+            <textarea name="notes" placeholder="Notes (optional)"></textarea>
+            <div class="btn-row">
+                <button type="submit" class="btn btn-primary" style="flex:1;">Submit order</button>
+                <button type="button" id="checkout-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+        </form>
     </div>
+</div>
 
     <script>
         let checkoutPlanId = null;
+
+        function showError(msg) {
+            document.getElementById("error").innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : "";
+        }
 
         async function load() {
             const [plansRes, meRes, ordersRes] = await Promise.all([
@@ -60,15 +88,14 @@
                 const isCurrent = plan.id === me.plan.id;
                 const isPending = pendingPlanIds.has(plan.id);
                 const div = document.createElement("div");
-                div.style.border = "1px solid #ccc";
-                div.style.padding = "12px";
-                div.style.marginBottom = "10px";
+                div.className = "card plan-card";
                 div.innerHTML = `
-                    <h3>${plan.display_name} ${plan.is_default ? "(default)" : ""} ${plan.is_business_plan ? "(Business — you'll admin an organization)" : ""}</h3>
-                    <p>${plan.price_display}</p>
+                    <h3>${plan.display_name} ${plan.is_default ? "<span class=\\"badge badge-info\\">Default</span>" : ""} ${plan.is_business_plan ? "<span class=\\"badge badge-info\\">Business</span>" : ""}</h3>
+                    <div class="plan-price">${plan.price_display}</div>
                     <ul>${plan.features.map((f) => `<li>${f}</li>`).join("")}</ul>
                 `;
                 const button = document.createElement("button");
+                button.className = "btn " + (isCurrent || isPending ? "btn-secondary" : "btn-primary");
                 if (isCurrent) {
                     button.textContent = "Current plan";
                     button.disabled = true;
@@ -85,7 +112,7 @@
         }
 
         function switchPlan(plan) {
-            document.getElementById("error").textContent = "";
+            showError("");
             if (plan.is_default) {
                 switchToFreePlan(plan.id);
                 return;
@@ -93,7 +120,7 @@
             checkoutPlanId = plan.id;
             document.getElementById("checkout-plan-name").textContent = plan.display_name;
             document.getElementById("business-name-field").style.display = plan.is_business_plan ? "block" : "none";
-            document.getElementById("checkout-modal").style.display = "block";
+            document.getElementById("checkout-modal").classList.add("open");
         }
 
         async function switchToFreePlan(planId) {
@@ -103,19 +130,19 @@
                 body: JSON.stringify({ plan_id: planId }),
             });
             if (!res.ok) {
-                document.getElementById("error").textContent = "Couldn't switch plans.";
+                showError("Couldn't switch plans.");
                 return;
             }
             load();
         }
 
         document.getElementById("checkout-cancel").addEventListener("click", () => {
-            document.getElementById("checkout-modal").style.display = "none";
+            document.getElementById("checkout-modal").classList.remove("open");
         });
 
         document.getElementById("checkout-form").addEventListener("submit", async (e) => {
             e.preventDefault();
-            document.getElementById("error").textContent = "";
+            showError("");
             const form = new FormData(e.target);
             const body = { plan_id: checkoutPlanId, method: form.get("method") };
             for (const key of [
@@ -133,16 +160,16 @@
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                document.getElementById("error").textContent = data.detail || "Couldn't submit order.";
+                showError(data.detail || "Couldn't submit order.");
                 return;
             }
-            document.getElementById("checkout-modal").style.display = "none";
+            document.getElementById("checkout-modal").classList.remove("open");
             e.target.reset();
             load();
         });
 
         load();
     </script>
-    <script src="/static/js/impersonation-banner.js"></script>
+<script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

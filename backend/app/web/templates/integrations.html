@@ -1,27 +1,32 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Integrations</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connected accounts</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
 </head>
 <body>
-    <h2>Connected accounts</h2>
-    <p><a href="/dashboard">Back to dashboard</a></p>
-    <div id="error" style="color:red;"></div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Connected accounts</a>
+    <div class="site-nav-links"><a href="/dashboard" class="btn btn-secondary">Home</a></div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px; max-width: 640px;">
+    <div id="error"></div>
 
-    <section>
-        <h3>Google Drive</h3>
-        <div id="google-status">Loading…</div>
-    </section>
-
-    <section>
-        <h3>Dropbox</h3>
-        <div id="dropbox-status">Loading…</div>
-    </section>
-
-    <section>
-        <h3>Microsoft OneDrive</h3>
-        <div id="microsoft-status">Loading…</div>
-    </section>
+    <div class="card">
+        <div class="card-title">Google Drive</div>
+        <div id="google-status">Loading&hellip;</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Dropbox</div>
+        <div id="dropbox-status">Loading&hellip;</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Microsoft OneDrive</div>
+        <div id="microsoft-status">Loading&hellip;</div>
+    </div>
 
     <script>
         const REPORT_LINKS = {
@@ -31,15 +36,15 @@
         };
 
         function showError(msg) {
-            document.getElementById("error").textContent = msg || "";
+            document.getElementById("error").innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : "";
         }
 
         function renderProvider(provider, connected) {
             const statusDiv = document.getElementById(`${provider}-status`);
             const reportLink = REPORT_LINKS[provider];
             statusDiv.innerHTML = connected
-                ? `<a href="${reportLink}">View report</a> &middot; <button onclick="disconnect('${provider}')">Disconnect</button>`
-                : `<a href="/connect/${provider}"><button>Connect</button></a>`;
+                ? `<a href="${reportLink}" class="btn btn-primary">View report</a> <button class="btn btn-secondary" onclick="disconnect('${provider}')">Disconnect</button>`
+                : `<a href="/connect/${provider}" class="btn btn-primary">Connect</a>`;
         }
 
         async function loadStatus() {
@@ -68,6 +73,7 @@
 
         loadStatus();
     </script>
-    <script src="/static/js/impersonation-banner.js"></script>
+</div>
+<script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

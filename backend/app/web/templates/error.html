@@ -1,25 +1,24 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>{{ status_code }} &mdash; Error</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ status_code }} — Error</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
     <style>
-        body {
-            font-family: sans-serif;
-            max-width: 600px;
-            margin: 80px auto;
-            text-align: center;
-            color: #333;
-            padding: 0 20px;
-        }
-        h1 { font-size: 64px; margin-bottom: 0; color: #b00020; }
-        p { font-size: 16px; color: #555; }
-        a { color: #2563eb; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        .error-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+        .error-wrap h1 { font-size: 72px; font-weight: 800; color: var(--danger); margin-bottom: 8px; }
+        .error-wrap p { font-size: 16px; color: var(--ink-600); margin-bottom: 24px; }
     </style>
 </head>
 <body>
-    <h1>{{ status_code }}</h1>
-    <p>{{ detail }}</p>
-    <p><a href="/dashboard">Back to dashboard</a></p>
+    <div class="error-wrap">
+        <div>
+            <h1>{{ status_code }}</h1>
+            <p>{{ detail }}</p>
+            <a href="/dashboard" class="btn btn-primary">Back to dashboard</a>
+        </div>
+    </div>
 </body>
 </html>

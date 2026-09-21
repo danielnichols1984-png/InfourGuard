@@ -3,48 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ provider_label }} Shared Documents</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/tenant_report.css">
-    <style>
-        :root {
-            {% if provider == "microsoft365" %}--primary: #0078d4; --primary-dark: #005a9e; --primary-light: #eff6fc;
-            {% elif provider == "google-workspace" %}--primary: #1a73e8; --primary-dark: #1558b0; --primary-light: #e8f0fe;
-            {% else %}--primary: #0061ff; --primary-dark: #0050d4; --primary-light: #f0f5ff;{% endif %}
-        }
-    </style>
+    <title>{{ provider_label }} Documents</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }</style>
 </head>
 <body>
-<div class="container">
-    <div class="top-nav">
-        <div class="brand-section">
-            <div class="logo-icon">📄</div>
-            <div class="brand-info">
-                <h1>{{ provider_label }}</h1>
-                <p>Shared Documents</p>
-            </div>
-        </div>
-        <div class="nav-actions">
-            <a href="/tenants" class="btn btn-outline">Organization Admin</a>
-            <a href="/dashboard" class="btn btn-outline">Home</a>
-        </div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>{{ provider_label }}</a>
+    <div class="site-nav-links">
+        <a href="/tenants" class="btn btn-secondary">Organization Admin</a>
+        <a href="/dashboard" class="btn btn-secondary">Home</a>
     </div>
-
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
     <div class="tab-nav">
         <a href="/organization/{{ provider }}" class="tab-link">Overview</a>
-        <a href="/organization/{{ provider }}/security" class="tab-link">Security &amp; Risks</a>
-        <a href="/organization/{{ provider }}/documents" class="tab-link active">Shared Documents</a>
-        <a href="/organization/{{ provider }}/storage" class="tab-link">Storage &amp; Growth</a>
+        <a href="/organization/{{ provider }}/security" class="tab-link">Security</a>
+        <a href="/organization/{{ provider }}/documents" class="tab-link active">Documents</a>
+        <a href="/organization/{{ provider }}/storage" class="tab-link">Storage</a>
         <a href="/organization/{{ provider }}/recommendations" class="tab-link">Recommendations</a>
     </div>
 
     {% if not connected %}
     <div class="card empty-placeholder">
-        <h3>{{ provider_label }} Not Connected</h3>
+        <h3>{{ provider_label }} not connected</h3>
         <p>Connect this organization from the Overview tab first.</p>
-        <a href="/organization/{{ provider }}" class="btn btn-primary" style="margin-top:12px;">Go to Overview</a>
+        <a href="/organization/{{ provider }}" class="btn btn-primary">Go to Overview</a>
     </div>
     {% elif error %}
     <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
@@ -55,22 +40,22 @@
     {% else %}
 
     {% if personal_drive_note %}<div class="alert alert-info">{{ personal_drive_note }}</div>{% endif %}
-    {% if shared_drives_count is defined %}<p style="color:var(--gray-500); font-size:13px;">{{ shared_drives_count }} Shared Drive{{ "s" if shared_drives_count != 1 else "" }} scanned.</p>{% endif %}
+    {% if shared_drives_count is defined %}<p style="color: var(--ink-500); font-size:13px; margin-bottom: 12px;">{{ shared_drives_count }} Shared Drive{{ "s" if shared_drives_count != 1 else "" }} scanned.</p>{% endif %}
 
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-card-header"><span class="stat-label">Total Shared</span></div>
+            <div class="stat-label">Total shared</div>
             <div class="stat-value">{{ total_shared }}</div>
         </div>
         <div class="stat-card">
-            <div class="stat-card-header"><span class="stat-label">Anyone-with-link</span></div>
-            <div class="stat-value" style="color: {{ 'var(--danger)' if anyone_with_link_count > 0 else 'var(--gray-900)' }};">{{ anyone_with_link_count }}</div>
+            <div class="stat-label">Anyone with link</div>
+            <div class="stat-value" style="color: {{ 'var(--danger)' if anyone_with_link_count > 0 else 'var(--ink-900)' }};">{{ anyone_with_link_count }}</div>
         </div>
         {% if all_items is defined %}
         <div class="stat-card">
-            <div class="stat-card-header"><span class="stat-label">Total Files</span></div>
+            <div class="stat-label">Total files</div>
             <div class="stat-value">{{ total_files }}</div>
-            <div class="stat-subtext">{{ total_folders }} folders</div>
+            <div class="stat-sub">{{ total_folders }} folders</div>
         </div>
         {% endif %}
     </div>
@@ -81,7 +66,7 @@
             {% if all_items is defined %}
             <div>
                 <button id="show-shared-btn" class="btn btn-primary" onclick="showView('shared')">Shared only</button>
-                <button id="show-all-btn" class="btn btn-outline" onclick="showView('all')">All files</button>
+                <button id="show-all-btn" class="btn btn-secondary" onclick="showView('all')">All files</button>
             </div>
             {% endif %}
         </div>
@@ -97,15 +82,15 @@
                     <tr>
                         <td>{{ item.name }}</td>
                         <td>{{ item.site or item.member or "-" }}</td>
-                        <td><span class="badge" style="background: {{ '#fee2e2' if vis in ('anonymous', 'public') else '#e0e7ff' }}; color: {{ '#b91c1c' if vis in ('anonymous', 'public') else '#4338ca' }};">{{ vis }}</span></td>
-                        <td>{% if item.web_url or item.url %}<a href="{{ item.web_url or item.url }}" target="_blank">Open ↗</a>{% endif %}</td>
+                        <td><span class="badge {{ 'badge-public' if vis in ('anonymous', 'public') else 'badge-shared' }}">{{ vis }}</span></td>
+                        <td>{% if item.web_url or item.url %}<a href="{{ item.web_url or item.url }}" target="_blank" style="color: var(--primary); font-weight: 600;">Open</a>{% endif %}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-        <p style="color: var(--gray-500);">No shared items found.</p>
+        <p style="color: var(--ink-500);">No shared items found.</p>
         {% endif %}
         </div>
 
@@ -129,14 +114,14 @@
             </table>
         </div>
         {% else %}
-        <p style="color: var(--gray-500);">No files found.</p>
+        <p style="color: var(--ink-500);">No files found.</p>
         {% endif %}
         </div>
         {% endif %}
     </div>
     {% endif %}
 
-    {% if warnings %}{% for w in warnings %}<div class="alert alert-warning">{{ w }}</div>{% endfor %}{% endif %}
+    {% if warnings %}{% for w in warnings %}<div class="alert alert-info">{{ w }}</div>{% endfor %}{% endif %}
     {% endif %}
 </div>
 <script>
@@ -148,10 +133,10 @@ function showView(view) {
     if (!sharedView || !allView) return;
     sharedView.style.display = view === "shared" ? "block" : "none";
     allView.style.display = view === "all" ? "block" : "none";
-    sharedBtn.className = view === "shared" ? "btn btn-primary" : "btn btn-outline";
-    allBtn.className = view === "all" ? "btn btn-primary" : "btn btn-outline";
+    sharedBtn.className = view === "shared" ? "btn btn-primary" : "btn btn-secondary";
+    allBtn.className = view === "all" ? "btn btn-primary" : "btn btn-secondary";
 }
 </script>
-    <script src="/static/js/impersonation-banner.js"></script>
+<script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

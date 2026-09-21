@@ -1,35 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Business</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        #members-table td, #members-table th { white-space: nowrap; }
+        #members-table td button { margin-right: 4px; }
+        .new-member-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .new-member-form input { width: auto; flex: 1; min-width: 180px; }
+    </style>
 </head>
 <body>
-    <h2 id="business-name">My Business</h2>
-    <p><a href="/dashboard">Back to dashboard</a></p>
-    <div id="error" style="color:red;"></div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span><span id="business-name">My Business</span></a>
+    <div class="site-nav-links"><a href="/dashboard" class="btn btn-secondary">Home</a></div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div id="error"></div>
 
-    <table border="1" cellpadding="6" id="members-table">
-        <thead>
-            <tr><th>Email</th><th>Role</th><th></th></tr>
-        </thead>
-        <tbody></tbody>
-    </table>
+    <div class="card">
+        <div class="card-title">Members</div>
+        <div class="table-responsive">
+            <table id="members-table">
+                <thead>
+                    <tr><th>Email</th><th>Role</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
 
-    <div id="admin-tools" style="display:none; margin-top:20px;">
-        <h4>Add a member</h4>
-        <form id="new-member-form">
+    <div id="admin-tools" class="card" style="display:none;">
+        <div class="card-title">Add a member</div>
+        <form id="new-member-form" class="new-member-form">
             <input type="email" name="email" placeholder="email@example.com" required>
             <input type="password" name="password" placeholder="Temporary password" required>
-            <button type="submit">Add member</button>
+            <button type="submit" class="btn btn-primary">Add member</button>
         </form>
     </div>
+</div>
 
     <script>
         let me = null;
         let isBusinessAdmin = false;
 
         function showError(msg) {
-            document.getElementById("error").textContent = msg || "";
+            document.getElementById("error").innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : "";
         }
 
         async function api(path, options) {

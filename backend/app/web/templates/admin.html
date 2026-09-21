@@ -1,52 +1,85 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Admin</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin: Plans</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        #plans-table input[type="text"], #plans-table input:not([type]) { min-width: 90px; }
+        .new-plan-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .new-plan-form input { width: auto; flex: 1; min-width: 140px; }
+        .new-plan-form label { font-size: 13px; color: var(--ink-700); white-space: nowrap; }
+    </style>
 </head>
 <body>
-    <h2>Admin: Plans</h2>
-    <p><a href="/dashboard">Back to dashboard</a> &middot; <a href="/admin/users">Manage users</a></p>
-    <div id="error" style="color:red;"></div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Admin</a>
+    <div class="site-nav-links"><a href="/dashboard" class="btn btn-secondary">Home</a></div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div class="tab-nav">
+        <a href="/admin/plans" class="tab-link active">Plans</a>
+        <a href="/admin/users" class="tab-link">Individual Users</a>
+        <a href="/admin/businesses" class="tab-link">Business Accounts</a>
+    </div>
+    <div id="error"></div>
 
-    <h3>Plans</h3>
-    <table border="1" cellpadding="6" id="plans-table">
-        <thead>
-            <tr><th>Name</th><th>Display name</th><th>Price</th><th>Features</th><th>Default</th><th>Business</th><th></th></tr>
-        </thead>
-        <tbody></tbody>
-    </table>
-    <p style="color:#666; font-size:13px;">Edit any field below, then click Save on that row.</p>
+    <div class="card">
+        <div class="card-title">Plans</div>
+        <div class="table-responsive">
+            <table id="plans-table">
+                <thead>
+                    <tr><th>Name</th><th>Display name</th><th>Price</th><th>Features</th><th>Default</th><th>Business</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <p style="color: var(--ink-500); font-size: 13px; margin-top: 10px;">Edit any field, then click Save on that row.</p>
+    </div>
 
-    <h4>Add a plan</h4>
-    <form id="new-plan-form">
-        <input name="name" placeholder="name (e.g. enterprise)" required>
-        <input name="display_name" placeholder="Display name" required>
-        <input name="price_display" placeholder="Price (e.g. $99/mo)" required>
-        <input name="features" placeholder="Features, comma separated">
-        <label><input type="checkbox" name="is_default"> Default plan</label>
-        <label><input type="checkbox" name="is_business_plan"> Business plan (buyer becomes an org admin)</label>
-        <button type="submit">Create plan</button>
-    </form>
+    <div class="card">
+        <div class="card-title">Add a plan</div>
+        <form id="new-plan-form" class="new-plan-form">
+            <input name="name" placeholder="name (e.g. enterprise)" required>
+            <input name="display_name" placeholder="Display name" required>
+            <input name="price_display" placeholder="Price (e.g. $99/mo)" required>
+            <input name="features" placeholder="Features, comma separated">
+            <label><input type="checkbox" name="is_default"> Default plan</label>
+            <label><input type="checkbox" name="is_business_plan"> Business plan</label>
+            <button type="submit" class="btn btn-primary">Create plan</button>
+        </form>
+    </div>
 
-    <h3>Users</h3>
-    <table border="1" cellpadding="6" id="users-table">
-        <thead><tr><th>Email</th><th>Plan</th></tr></thead>
-        <tbody></tbody>
-    </table>
+    <div class="card">
+        <div class="card-title">Users</div>
+        <div class="table-responsive">
+            <table id="users-table">
+                <thead><tr><th>Email</th><th>Plan</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
 
-    <h3>Pending Payments</h3>
-    <table border="1" cellpadding="6" id="payments-table">
-        <thead>
-            <tr><th>Email</th><th>Plan</th><th>Method</th><th>Billing name</th><th>Submitted</th><th></th></tr>
-        </thead>
-        <tbody></tbody>
-    </table>
+    <div class="card">
+        <div class="card-title">Pending payments</div>
+        <div class="table-responsive">
+            <table id="payments-table">
+                <thead>
+                    <tr><th>Email</th><th>Plan</th><th>Method</th><th>Billing name</th><th>Submitted</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
 
     <script>
         let plans = [];
 
         function showError(msg) {
-            document.getElementById("error").textContent = msg || "";
+            document.getElementById("error").innerHTML = msg ? `<div class="alert alert-error">${msg}</div>` : "";
         }
 
         function featuresToList(text) {
@@ -68,8 +101,8 @@
                     <td><input type="checkbox" data-field="is_default" ${plan.is_default ? "checked" : ""}></td>
                     <td><input type="checkbox" data-field="is_business_plan" ${plan.is_business_plan ? "checked" : ""}></td>
                     <td>
-                        <button data-save="${plan.id}">Save</button>
-                        <button data-delete="${plan.id}">Delete</button>
+                        <button class="btn btn-primary" data-save="${plan.id}">Save</button>
+                        <button class="btn btn-danger" data-delete="${plan.id}">Delete</button>
                     </td>
                 `;
                 tr.querySelector("[data-save]").onclick = () => savePlan(plan.id, tr);
@@ -180,8 +213,8 @@
                     <td>${p.billing_name}</td>
                     <td>${submitted}</td>
                     <td>
-                        <button data-confirm="${p.id}">Confirm</button>
-                        <button data-reject="${p.id}">Reject</button>
+                        <button class="btn btn-primary" data-confirm="${p.id}">Confirm</button>
+                        <button class="btn btn-danger" data-reject="${p.id}">Reject</button>
                     </td>
                 `;
                 tr.querySelector("[data-confirm]").onclick = () => resolvePayment(p.id, "confirm");
