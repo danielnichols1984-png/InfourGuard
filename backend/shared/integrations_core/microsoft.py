@@ -65,7 +65,19 @@ def get_access_token(db: Session, user_id: int) -> str | None:
         return None
 
     if record.expires_at and record.expires_at <= datetime.now(timezone.utc) and record.refresh_token:
-        result = _refresh(record.refresh_token)
+        try:
+            result = _refresh(record.refresh_token)
+        except RuntimeError:
+            # A refresh token can't silently pick up a scope added after it
+            # was issued (e.g. UserAuthenticationMethod.Read added for the
+            # Security tab's MFA data) — Azure AD rejects it with
+            # invalid_grant rather than partially honoring it. Routine,
+            # expected OAuth behavior, not a bug — the fix is a fresh
+            # interactive reconnect, so this reads as "not connected"
+            # (every caller already handles that) rather than an
+            # unhandled 500. Mirrors tenants_core.microsoft_graph's
+            # identical fix for the same underlying scope-growth issue.
+            return None
         token_service.save_tokens(
             db, user_id, "microsoft",
             access_token=result["access_token"],
