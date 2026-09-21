@@ -323,11 +323,16 @@ def compute_quickxorhash(data: bytes) -> str:
     return base64.b64encode(h.digest()).decode()
 
 
-def resolve_path_to_item_id(access_token: str, path: str) -> str:
+def resolve_path_to_item_id(access_token: str, path: str, base_path: str = "/me/drive") -> str:
+    """base_path defaults to the caller's own OneDrive ("/me/drive") —
+    the original, only behavior before business-storage migration
+    support was added. A migration into/out of a SharePoint site passes
+    base_path=f"/sites/{site_id}/drive" instead (see adapters.py's
+    MicrosoftAdapter, which is this function's only caller)."""
     if not path:
         return "root"
     resp = requests.get(
-        f"{GRAPH_BASE}/me/drive/root:/{path}",
+        f"{GRAPH_BASE}{base_path}/root:/{path}",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=30,
     )
@@ -335,10 +340,13 @@ def resolve_path_to_item_id(access_token: str, path: str) -> str:
     return resp.json()["id"]
 
 
-def list_folder_tree(access_token: str, root_ref: str) -> list[dict]:
+def list_folder_tree(access_token: str, root_ref: str, base_path: str = "/me/drive") -> list[dict]:
     """Flat listing of everything under root_ref (a driveItem id, or the
     literal "root"), each carrying a `relative_path` relative to that
     root — the migration engine's ProviderAdapter.list_tree() contract.
+    base_path selects which drive this operates against (personal
+    OneDrive by default, or a SharePoint site's drive — see
+    resolve_path_to_item_id).
 
     Uses `delta` scoped to root_ref rather than a manual per-folder walk,
     for the same reason generate_report() does (see _list_all_items) —
@@ -351,13 +359,13 @@ def list_folder_tree(access_token: str, root_ref: str) -> list[dict]:
     if root_ref == "root":
         root_abs_path = _ROOT_PATH_PREFIX
     else:
-        root_info = _graph_get(access_token, f"/me/drive/items/{root_ref}?$select=name,parentReference")
+        root_info = _graph_get(access_token, f"{base_path}/items/{root_ref}?$select=name,parentReference")
         parent_path = root_info.get("parentReference", {}).get("path", _ROOT_PATH_PREFIX)
         root_abs_path = f"{parent_path}/{root_info['name']}"
 
     entries: list[dict] = []
     url = (
-        f"{GRAPH_BASE}/me/drive/items/{root_ref}/delta"
+        f"{GRAPH_BASE}{base_path}/items/{root_ref}/delta"
         "?$select=id,name,folder,file,size,parentReference,shared,deleted"
     )
     while url:
@@ -392,19 +400,19 @@ def list_folder_tree(access_token: str, root_ref: str) -> list[dict]:
     return entries
 
 
-def ensure_folder(access_token: str, parent_id: str, name: str) -> str:
+def ensure_folder(access_token: str, parent_id: str, name: str, base_path: str = "/me/drive") -> str:
     """Creates `name` under parent_id if it doesn't exist yet. Returns its
     id either way — a 409 conflict means it already exists, so that case
     just looks the existing folder up instead of raising."""
     resp = requests.post(
-        f"{GRAPH_BASE}/me/drive/items/{parent_id}/children",
+        f"{GRAPH_BASE}{base_path}/items/{parent_id}/children",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
         json={"name": name, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"},
         timeout=30,
     )
     if resp.status_code == 409:
         lookup = requests.get(
-            f"{GRAPH_BASE}/me/drive/items/{parent_id}:/{name}",
+            f"{GRAPH_BASE}{base_path}/items/{parent_id}:/{name}",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30,
         )
@@ -414,9 +422,9 @@ def ensure_folder(access_token: str, parent_id: str, name: str) -> str:
     return resp.json()["id"]
 
 
-def download_file_bytes(access_token: str, item_id: str) -> bytes:
+def download_file_bytes(access_token: str, item_id: str, base_path: str = "/me/drive") -> bytes:
     resp = requests.get(
-        f"{GRAPH_BASE}/me/drive/items/{item_id}/content",
+        f"{GRAPH_BASE}{base_path}/items/{item_id}/content",
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=120,
     )
@@ -424,9 +432,9 @@ def download_file_bytes(access_token: str, item_id: str) -> bytes:
     return resp.content
 
 
-def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes) -> dict:
+def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes, base_path: str) -> dict:
     session_resp = requests.post(
-        f"{GRAPH_BASE}/me/drive/items/{parent_id}:/{name}:/createUploadSession",
+        f"{GRAPH_BASE}{base_path}/items/{parent_id}:/{name}:/createUploadSession",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
         json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
         timeout=30,
@@ -453,7 +461,7 @@ def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes) -
     return result
 
 
-def upload_file_bytes(access_token: str, parent_id: str, name: str, data: bytes) -> dict:
+def upload_file_bytes(access_token: str, parent_id: str, name: str, data: bytes, base_path: str = "/me/drive") -> dict:
     """Returns {"ref", "hash"}. Uses a chunked upload session above
     Graph's documented 4MB simple-upload threshold, the same size
     boundary Dropbox's own adapter uses (150MB there) for the same
@@ -461,7 +469,7 @@ def upload_file_bytes(access_token: str, parent_id: str, name: str, data: bytes)
     recommends upload sessions past this size."""
     if len(data) <= ONEDRIVE_SIMPLE_UPLOAD_LIMIT:
         resp = requests.put(
-            f"{GRAPH_BASE}/me/drive/items/{parent_id}:/{name}:/content",
+            f"{GRAPH_BASE}{base_path}/items/{parent_id}:/{name}:/content",
             headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/octet-stream"},
             data=data,
             timeout=120,
@@ -469,15 +477,15 @@ def upload_file_bytes(access_token: str, parent_id: str, name: str, data: bytes)
         resp.raise_for_status()
         result = resp.json()
     else:
-        result = _chunked_upload(access_token, parent_id, name, data)
+        result = _chunked_upload(access_token, parent_id, name, data, base_path)
 
     file_facet = (result or {}).get("file") or {}
     return {"ref": result["id"], "hash": file_facet.get("hashes", {}).get("quickXorHash")}
 
 
-def apply_public_sharing(access_token: str, item_id: str) -> str:
+def apply_public_sharing(access_token: str, item_id: str, base_path: str = "/me/drive") -> str:
     resp = requests.post(
-        f"{GRAPH_BASE}/me/drive/items/{item_id}/createLink",
+        f"{GRAPH_BASE}{base_path}/items/{item_id}/createLink",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
         json={"type": "view", "scope": "anonymous"},
         timeout=30,
@@ -486,9 +494,9 @@ def apply_public_sharing(access_token: str, item_id: str) -> str:
     return resp.json().get("link", {}).get("webUrl")
 
 
-def apply_named_sharing(access_token: str, item_id: str, email: str) -> bool:
+def apply_named_sharing(access_token: str, item_id: str, email: str, base_path: str = "/me/drive") -> bool:
     resp = requests.post(
-        f"{GRAPH_BASE}/me/drive/items/{item_id}/invite",
+        f"{GRAPH_BASE}{base_path}/items/{item_id}/invite",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
         json={
             "recipients": [{"email": email}],

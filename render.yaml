@@ -1,0 +1,91 @@
+# Render Blueprint — see https://render.com/docs/blueprint-spec
+#
+# Deploys one Web Service (built from the root Dockerfile, which compiles
+# the React SPA and runs it from the FastAPI backend that serves it — see
+# backend/app/main.py) plus one Postgres database. See
+# backend/.env.example for what each env var below is for.
+#
+# After the first deploy, fill in the `sync: false` variables in the
+# Render dashboard (Environment tab) — these are provider OAuth
+# credentials and redirect URIs that reference this service's own Render
+# URL, so they can't be known until the service exists and has a URL.
+
+# `plan: free` on both below gets you live for $0 to start — free web
+# services spin down after 15 min idle (a real cold-start delay on the
+# next request, and OAuth redirects could hit that delay) and the free
+# database is deleted after 30 days. Bump these to a paid plan (e.g.
+# 0.5c-512mb / 0.5c-1g) in the Render dashboard once you're past testing.
+databases:
+  - name: dashboard-db
+    plan: free
+
+services:
+  - type: web
+    name: dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /docs
+    envVars:
+      - key: AUTH_DATABASE_URL
+        fromDatabase:
+          name: dashboard-db
+          property: connectionString
+      - key: SUBSCRIPTIONS_DATABASE_URL
+        fromDatabase:
+          name: dashboard-db
+          property: connectionString
+      - key: INTEGRATIONS_DATABASE_URL
+        fromDatabase:
+          name: dashboard-db
+          property: connectionString
+      - key: MIGRATIONS_DATABASE_URL
+        fromDatabase:
+          name: dashboard-db
+          property: connectionString
+      - key: BUSINESSES_DATABASE_URL
+        fromDatabase:
+          name: dashboard-db
+          property: connectionString
+      - key: TENANTS_DATABASE_URL
+        fromDatabase:
+          name: dashboard-db
+          property: connectionString
+
+      - key: AUTH_SECRET_KEY
+        generateValue: true
+
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_ADMIN_REDIRECT_URI
+        sync: false
+
+      - key: DROPBOX_APP_KEY
+        sync: false
+      - key: DROPBOX_APP_SECRET
+        sync: false
+      - key: DROPBOX_REDIRECT_URI
+        sync: false
+      - key: DROPBOX_BUSINESS_REDIRECT_URI
+        sync: false
+
+      - key: MICROSOFT_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_REDIRECT_URI
+        sync: false
+      - key: MICROSOFT_ADMIN_REDIRECT_URI
+        sync: false
+      - key: MICROSOFT_TENANT
+        value: common
+
+      - key: EMAIL_ADDRESS
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false

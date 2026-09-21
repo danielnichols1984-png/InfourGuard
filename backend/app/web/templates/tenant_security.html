@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ provider_label }} Security &amp; Risks</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/tenant_report.css">
+    <style>
+        :root {
+            {% if provider == "microsoft365" %}--primary: #0078d4; --primary-dark: #005a9e; --primary-light: #eff6fc;
+            {% elif provider == "google-workspace" %}--primary: #1a73e8; --primary-dark: #1558b0; --primary-light: #e8f0fe;
+            {% else %}--primary: #0061ff; --primary-dark: #0050d4; --primary-light: #f0f5ff;{% endif %}
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="top-nav">
+        <div class="brand-section">
+            <div class="logo-icon">🛡️</div>
+            <div class="brand-info">
+                <h1>{{ provider_label }}</h1>
+                <p>Security &amp; Risks</p>
+            </div>
+        </div>
+        <div class="nav-actions">
+            <a href="/tenants" class="btn btn-outline">Organization Admin</a>
+            <a href="/dashboard" class="btn btn-outline">Home</a>
+        </div>
+    </div>
+
+    <div class="tab-nav">
+        <a href="/organization/{{ provider }}" class="tab-link">Overview</a>
+        <a href="/organization/{{ provider }}/security" class="tab-link active">Security &amp; Risks</a>
+        <a href="/organization/{{ provider }}/documents" class="tab-link">Shared Documents</a>
+        <a href="/organization/{{ provider }}/storage" class="tab-link">Storage &amp; Growth</a>
+        <a href="/organization/{{ provider }}/recommendations" class="tab-link">Recommendations</a>
+    </div>
+
+    {% if not connected %}
+    <div class="card empty-placeholder">
+        <h3>{{ provider_label }} Not Connected</h3>
+        <p>Connect this organization from the Overview tab first.</p>
+        <a href="/organization/{{ provider }}" class="btn btn-primary" style="margin-top:12px;">Go to Overview</a>
+    </div>
+    {% elif error %}
+    <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
+    {% else %}
+
+    <div class="stats-grid">
+        {% if mfa_coverage %}
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">MFA Coverage</span></div>
+            <div class="stat-value">{{ mfa_coverage.mfa_registered }} <span style="font-size:14px;color:var(--gray-500);">of {{ mfa_coverage.total_users }}</span></div>
+            <div class="stat-subtext">{{ mfa_coverage.mfa_coverage_percent ~ "%" if mfa_coverage.mfa_coverage_percent is not none else "-" }}{% if mfa_coverage.source %} — {{ mfa_coverage.source }}{% endif %}</div>
+        </div>
+        {% endif %}
+        {% if security_defaults %}
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Security Defaults</span></div>
+            <div class="stat-value" style="color: {{ 'var(--success)' if security_defaults.enabled else 'var(--danger)' }};">{{ "Enabled" if security_defaults.enabled else "Disabled" }}</div>
+            <div class="stat-subtext">Tenant-wide MFA requirement (no Premium needed)</div>
+        </div>
+        {% endif %}
+        {% if member_status %}
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Active Members</span></div>
+            <div class="stat-value">{{ member_status.active }} <span style="font-size:14px;color:var(--gray-500);">of {{ member_status.total_members }}</span></div>
+            <div class="stat-subtext">{{ member_status.suspended }} suspended, {{ member_status.invited_not_yet_active }} invited</div>
+        </div>
+        {% endif %}
+        {% if guest_accounts %}
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">External Guests</span></div>
+            <div class="stat-value">{{ guest_accounts.total_guests }}</div>
+        </div>
+        {% endif %}
+        {% if external_sharing %}
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Anyone-with-link</span></div>
+            <div class="stat-value" style="color: {{ 'var(--danger)' if external_sharing.anyone_with_link_count > 0 else 'var(--gray-900)' }};">{{ external_sharing.anyone_with_link_count }}</div>
+            <div class="stat-subtext">{{ external_sharing.shared_count }} shared with specific people/org</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if mfa_coverage_note %}<div class="alert alert-info">{{ mfa_coverage_note }}</div>{% endif %}
+
+    {% if mfa_coverage and mfa_coverage.users %}
+    <div class="card">
+        <div class="card-title">MFA Status by User</div>
+        <ul class="plain">
+            {% for u in mfa_coverage.users %}
+            <li>{{ u.name or u.upn }} — {% if u.mfa_registered == true %}✅ Registered{% elif u.mfa_registered == false %}❌ Not registered{% else %}❓ Unknown{% endif %}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if inactive_accounts %}
+    {% set buckets = inactive_accounts.days_since_last_onedrive_activity or inactive_accounts.days_since_last_login or {} %}
+    <div class="card">
+        <div class="card-title">Inactive Accounts</div>
+        <dl class="kv">
+            <dt>0-30 days</dt><dd>{{ buckets.get("0-30", 0) }}</dd>
+            <dt>31-60 days</dt><dd>{{ buckets.get("31-60", 0) }}</dd>
+            <dt>61-90 days</dt><dd>{{ buckets.get("61-90", 0) }}</dd>
+            <dt>90+ days</dt><dd>{{ buckets.get("90+", 0) }}</dd>
+            {% if inactive_accounts.suspended_accounts is defined %}<dt>Suspended</dt><dd>{{ inactive_accounts.suspended_accounts }}</dd>{% endif %}
+        </dl>
+        {% if inactive_accounts.approximation_note %}<div class="alert alert-info" style="margin-top:12px;">{{ inactive_accounts.approximation_note }}</div>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if guest_accounts and guest_accounts.by_external_domain %}
+    <div class="card">
+        <div class="card-title">Guest Domains</div>
+        <ul class="plain">
+            {% for domain, count in guest_accounts.by_external_domain.items() %}
+            <li>{{ domain }}: {{ count }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if teams_activity %}
+    <div class="card">
+        <div class="card-title">Teams Activity (30d)</div>
+        <dl class="kv">
+            <dt>Active users</dt><dd>{{ teams_activity.active_users_30d }} of {{ teams_activity.total_users }}</dd>
+            <dt>Channel messages</dt><dd>{{ teams_activity.channel_messages_30d }}</dd>
+            <dt>Calls</dt><dd>{{ teams_activity.calls_30d }}</dd>
+        </dl>
+    </div>
+    {% endif %}
+
+    {% if mailbox_usage %}
+    <div class="card">
+        <div class="card-title">Mailbox Usage</div>
+        <dl class="kv">
+            <dt>Mailboxes</dt><dd>{{ mailbox_usage.total_mailboxes }}</dd>
+            <dt>Storage used</dt><dd>{{ mailbox_usage.storage_used }}</dd>
+            <dt>Total items</dt><dd>{{ mailbox_usage.total_item_count }}</dd>
+        </dl>
+    </div>
+    {% endif %}
+
+    {% if audit_events %}
+    <div class="card">
+        <div class="card-title">Recent Audit Events</div>
+        {% if audit_events.recent_events %}
+        <ul class="plain">
+            {% for e in audit_events.recent_events[:15] %}
+            <li>{{ e.date[:19] if e.date else "-" }} — <strong>{{ e.activity }}</strong> ({{ e.actor or "unknown" }}) — {{ e.result }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No recent events.</p>
+        {% endif %}
+        <div class="alert alert-info" style="margin-top:12px;">{{ audit_events.note }}</div>
+    </div>
+    {% endif %}
+
+    {% if sharing_policy %}
+    <div class="card">
+        <div class="card-title">Tenant Sharing Policy</div>
+        <dl class="kv">
+            <dt>External sharing</dt><dd>{{ sharing_policy.sharing_capability or "Unknown" }}</dd>
+            {% if sharing_policy.sharing_domain_restriction_mode %}<dt>Domain restriction</dt><dd>{{ sharing_policy.sharing_domain_restriction_mode }}</dd>{% endif %}
+        </dl>
+        <div class="alert alert-info" style="margin-top:12px;">Tenant-wide setting — whether external sharing is allowed at all, separate from the per-file scan on the Shared Documents tab.</div>
+    </div>
+    {% endif %}
+
+    {% if app_grants %}
+    <div class="card">
+        <div class="card-title">Third-Party App Access ({{ app_grants.total_apps }})</div>
+        {% if app_grants.apps %}
+        <div class="table-responsive">
+            <table>
+                <thead><tr><th>App</th><th>Granted to</th><th>Scopes</th></tr></thead>
+                <tbody>
+                    {% for app in app_grants.apps %}
+                    <tr>
+                        <td>{{ app.name }}</td>
+                        <td>{{ app.user_count if app.user_count is defined else app.grant_count }} user{{ "s" if (app.user_count if app.user_count is defined else app.grant_count) != 1 else "" }}</td>
+                        <td style="font-size:12px; color: var(--gray-500);">{{ app.scopes | join(", ") }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color: var(--gray-500);">No third-party app grants found.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if warnings %}{% for w in warnings %}<div class="alert alert-warning">{{ w }}</div>{% endfor %}{% endif %}
+    {% endif %}
+</div>
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

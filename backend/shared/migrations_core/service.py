@@ -61,6 +61,10 @@ def add_mapping(
     destination_user_id: int,
     source_root_path: str = "",
     destination_root_path: str = "",
+    source_container_type: str | None = None,
+    source_container_id: str | None = None,
+    destination_container_type: str | None = None,
+    destination_container_id: str | None = None,
 ) -> MigrationUserMapping:
     mapping = MigrationUserMapping(
         job_id=job.id,
@@ -68,6 +72,10 @@ def add_mapping(
         destination_user_id=destination_user_id,
         source_root_path=source_root_path,
         destination_root_path=destination_root_path,
+        source_container_type=source_container_type,
+        source_container_id=source_container_id,
+        destination_container_type=destination_container_type,
+        destination_container_id=destination_container_id,
         status="pending",
         stats={},
     )
@@ -124,11 +132,15 @@ def list_items(db: Session, mapping_id: int) -> list[MigrationItem]:
 
 def _walk_and_plan(db: Session, job: MigrationJob, mapping: MigrationUserMapping) -> None:
     source_adapter = get_adapter(job.source_provider)
-    source_client = source_adapter.get_client(mapping.source_user_id)
+    source_client = source_adapter.get_client(
+        mapping.source_user_id, mapping.source_container_type, mapping.source_container_id
+    )
     if not source_client:
         raise RuntimeError(f"Source user {mapping.source_user_id} hasn't connected {job.source_provider}")
 
-    source_root_ref = source_adapter.resolve_root(source_client, mapping.source_root_path)
+    source_root_ref = source_adapter.resolve_root(
+        source_client, mapping.source_root_path, mapping.source_container_type, mapping.source_container_id
+    )
     tree = source_adapter.list_tree(source_client, source_root_ref)
 
     # Re-running prestage replaces the previous plan rather than duplicating it.
@@ -298,14 +310,20 @@ def _run_mapping(db: Session, job: MigrationJob, mapping: MigrationUserMapping) 
     source_adapter = get_adapter(job.source_provider)
     dest_adapter = get_adapter(job.destination_provider)
 
-    source_client = source_adapter.get_client(mapping.source_user_id)
+    source_client = source_adapter.get_client(
+        mapping.source_user_id, mapping.source_container_type, mapping.source_container_id
+    )
     if not source_client:
         raise RuntimeError(f"Source user no longer has {job.source_provider} connected")
-    dest_client = dest_adapter.get_client(mapping.destination_user_id)
+    dest_client = dest_adapter.get_client(
+        mapping.destination_user_id, mapping.destination_container_type, mapping.destination_container_id
+    )
     if not dest_client:
         raise RuntimeError(f"Destination user no longer has {job.destination_provider} connected")
 
-    dest_root_ref = dest_adapter.ensure_path(dest_client, mapping.destination_root_path)
+    dest_root_ref = dest_adapter.ensure_path(
+        dest_client, mapping.destination_root_path, mapping.destination_container_type, mapping.destination_container_id
+    )
 
     items = list_items(db, mapping.id)
     # Folders must exist before anything can be uploaded into them.
@@ -390,7 +408,9 @@ def rerun_share_recreation(job_id: int) -> None:
         dest_adapter = get_adapter(job.destination_provider)
 
         for mapping in list_mappings(db, job.id):
-            dest_client = dest_adapter.get_client(mapping.destination_user_id)
+            dest_client = dest_adapter.get_client(
+                mapping.destination_user_id, mapping.destination_container_type, mapping.destination_container_id
+            )
             if not dest_client:
                 continue
 

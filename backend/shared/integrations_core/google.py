@@ -109,7 +109,7 @@ def compute_md5(data: bytes) -> str:
 # ---------------------------------------------------------
 
 
-def resolve_path_to_folder_id(service, path: str) -> str:
+def resolve_path_to_folder_id(service, path: str, drive_id: str | None = None) -> str:
     """Resolves a human path like "Team/Archive" to a Drive folder id.
 
     Drive has no real paths (files are attached to parent ids, and names
@@ -117,8 +117,15 @@ def resolve_path_to_folder_id(service, path: str) -> str:
     taking the first matching folder at each level. Good enough for a
     migration root path chosen by an admin/user who knows their own
     folder structure; not a general path-resolution guarantee.
+
+    drive_id, when set, scopes every lookup to one Shared Drive (via
+    corpora="drive"/supportsAllDrives) instead of the caller's own My
+    Drive — see migrations_core's GoogleAdapter for how this gets
+    threaded through for a business-storage migration. "root" in that
+    case starts from the Shared Drive's own root, which Drive treats the
+    same as a personal My Drive root for `parents` purposes.
     """
-    parent_id = "root"
+    parent_id = drive_id if drive_id else "root"
     segments = [s for s in path.strip("/").split("/") if s]
     for segment in segments:
         escaped = segment.replace("'", "\\'")
@@ -126,7 +133,10 @@ def resolve_path_to_folder_id(service, path: str) -> str:
             f"name = '{escaped}' and mimeType = '{FOLDER_MIME_TYPE}' "
             f"and '{parent_id}' in parents and trashed = false"
         )
-        response = service.files().list(q=query, fields="files(id, name)", pageSize=1).execute()
+        list_kwargs = {"q": query, "fields": "files(id, name)", "pageSize": 1}
+        if drive_id:
+            list_kwargs.update(corpora="drive", driveId=drive_id, includeItemsFromAllDrives=True, supportsAllDrives=True)
+        response = service.files().list(**list_kwargs).execute()
         matches = response.get("files", [])
         if not matches:
             raise FileNotFoundError(f"Folder not found: {path!r} (missing segment {segment!r})")
@@ -134,9 +144,10 @@ def resolve_path_to_folder_id(service, path: str) -> str:
     return parent_id
 
 
-def list_folder_tree(service, root_folder_id: str) -> list[dict]:
+def list_folder_tree(service, root_folder_id: str, drive_id: str | None = None) -> list[dict]:
     """Flat list of every file/folder under root_folder_id, each carrying a
-    `relative_path` computed from its position in the tree (BFS)."""
+    `relative_path` computed from its position in the tree (BFS). See
+    resolve_path_to_folder_id for what drive_id does."""
     tree: list[dict] = []
     queue: list[tuple[str, str]] = [(root_folder_id, "")]
 
@@ -144,19 +155,18 @@ def list_folder_tree(service, root_folder_id: str) -> list[dict]:
         folder_id, prefix = queue.pop(0)
         page_token = None
         while True:
-            response = (
-                service.files()
-                .list(
-                    q=f"'{folder_id}' in parents and trashed = false",
-                    fields=(
-                        "nextPageToken, files(id, name, mimeType, size, md5Checksum, "
-                        "modifiedTime, permissions(type, role, emailAddress))"
-                    ),
-                    pageSize=1000,
-                    pageToken=page_token,
-                )
-                .execute()
-            )
+            list_kwargs = {
+                "q": f"'{folder_id}' in parents and trashed = false",
+                "fields": (
+                    "nextPageToken, files(id, name, mimeType, size, md5Checksum, "
+                    "modifiedTime, permissions(type, role, emailAddress))"
+                ),
+                "pageSize": 1000,
+                "pageToken": page_token,
+            }
+            if drive_id:
+                list_kwargs.update(corpora="drive", driveId=drive_id, includeItemsFromAllDrives=True, supportsAllDrives=True)
+            response = service.files().list(**list_kwargs).execute()
             for f in response.get("files", []):
                 is_folder = f.get("mimeType") == FOLDER_MIME_TYPE
                 relative_path = f"{prefix}/{f['name']}" if prefix else f["name"]
@@ -172,32 +182,39 @@ def list_folder_tree(service, root_folder_id: str) -> list[dict]:
     return tree
 
 
-def ensure_folder(service, parent_id: str, name: str) -> str:
+def ensure_folder(service, parent_id: str, name: str, drive_id: str | None = None) -> str:
     """Returns the id of a child folder named `name` under parent_id,
-    creating it if it doesn't already exist."""
+    creating it if it doesn't already exist. See resolve_path_to_folder_id
+    for what drive_id does — also required on the create() call itself
+    when the parent lives inside a Shared Drive, or Drive rejects it."""
     escaped = name.replace("'", "\\'")
     query = (
         f"name = '{escaped}' and mimeType = '{FOLDER_MIME_TYPE}' "
         f"and '{parent_id}' in parents and trashed = false"
     )
-    response = service.files().list(q=query, fields="files(id)", pageSize=1).execute()
+    list_kwargs = {"q": query, "fields": "files(id)", "pageSize": 1}
+    if drive_id:
+        list_kwargs.update(corpora="drive", driveId=drive_id, includeItemsFromAllDrives=True, supportsAllDrives=True)
+    response = service.files().list(**list_kwargs).execute()
     matches = response.get("files", [])
     if matches:
         return matches[0]["id"]
 
-    created = (
-        service.files()
-        .create(
-            body={"name": name, "mimeType": FOLDER_MIME_TYPE, "parents": [parent_id]},
-            fields="id",
-        )
-        .execute()
-    )
+    create_kwargs = {
+        "body": {"name": name, "mimeType": FOLDER_MIME_TYPE, "parents": [parent_id]},
+        "fields": "id",
+    }
+    if drive_id:
+        create_kwargs["supportsAllDrives"] = True
+    created = service.files().create(**create_kwargs).execute()
     return created["id"]
 
 
-def download_file_bytes(service, file_id: str) -> bytes:
-    request = service.files().get_media(fileId=file_id)
+def download_file_bytes(service, file_id: str, drive_id: str | None = None) -> bytes:
+    kwargs = {"fileId": file_id}
+    if drive_id:
+        kwargs["supportsAllDrives"] = True
+    request = service.files().get_media(**kwargs)
     buffer = io.BytesIO()
     downloader = MediaIoBaseDownload(buffer, request)
     done = False
@@ -263,33 +280,38 @@ def export_file_bytes(service, file_id: str, export_mime_type: str) -> bytes:
     return buffer.getvalue()
 
 
-def upload_file_bytes(service, parent_id: str, name: str, data: bytes, mime_type: str) -> dict:
-    """Uploads `data` as a new file under parent_id. Returns {"id", "md5Checksum"}."""
+def upload_file_bytes(service, parent_id: str, name: str, data: bytes, mime_type: str, drive_id: str | None = None) -> dict:
+    """Uploads `data` as a new file under parent_id. Returns {"id", "md5Checksum"}.
+    supportsAllDrives is required on create() when parent_id lives inside
+    a Shared Drive — see resolve_path_to_folder_id for drive_id."""
     media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime_type or "application/octet-stream")
-    created = (
-        service.files()
-        .create(
-            body={"name": name, "parents": [parent_id]},
-            media_body=media,
-            fields="id, md5Checksum",
-        )
-        .execute()
-    )
+    create_kwargs = {
+        "body": {"name": name, "parents": [parent_id]},
+        "media_body": media,
+        "fields": "id, md5Checksum",
+    }
+    if drive_id:
+        create_kwargs["supportsAllDrives"] = True
+    created = service.files().create(**create_kwargs).execute()
     return created
 
 
-def apply_public_sharing(service, file_id: str) -> None:
-    service.permissions().create(
-        fileId=file_id, body={"type": "anyone", "role": "reader"}
-    ).execute()
+def apply_public_sharing(service, file_id: str, drive_id: str | None = None) -> None:
+    kwargs = {"fileId": file_id, "body": {"type": "anyone", "role": "reader"}}
+    if drive_id:
+        kwargs["supportsAllDrives"] = True
+    service.permissions().create(**kwargs).execute()
 
 
-def apply_named_sharing(service, file_id: str, email: str, role: str = "reader") -> None:
-    service.permissions().create(
-        fileId=file_id,
-        body={"type": "user", "role": role, "emailAddress": email},
-        sendNotificationEmail=False,
-    ).execute()
+def apply_named_sharing(service, file_id: str, email: str, role: str = "reader", drive_id: str | None = None) -> None:
+    kwargs = {
+        "fileId": file_id,
+        "body": {"type": "user", "role": role, "emailAddress": email},
+        "sendNotificationEmail": False,
+    }
+    if drive_id:
+        kwargs["supportsAllDrives"] = True
+    service.permissions().create(**kwargs).execute()
 
 
 def format_file_size(size_bytes) -> str:

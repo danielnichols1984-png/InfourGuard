@@ -29,17 +29,38 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 # Delegated permissions — the signing-in user must be a Global Admin (or
 # have been granted admin-consent rights) for these to actually resolve;
 # a non-admin gets a clean 403 from Graph itself, not a false result.
-# AuditLog.Read.All was added for MFA registration coverage and directory
-# audit log events — a connection made before this was added won't have
-# it and needs to reconnect (Graph doesn't retroactively upgrade a token's
-# granted scope, same as every other OAuth scope change in this codebase).
+# AuditLog.Read.All was added for the (Premium-gated) MFA registration
+# report and directory audit log events. Policy.Read.All and
+# UserAuthenticationMethod.Read.All were added after confirming live that
+# MFA visibility genuinely needs Azure AD Premium via the report endpoint
+# — these two give a non-Premium alternative (Security Defaults status +
+# per-user registered auth methods) instead. A connection made before any
+# of these was added won't have them and needs to reconnect (Graph
+# doesn't retroactively upgrade a token's granted scope).
 GRAPH_SCOPES = [
     "Organization.Read.All",
     "User.Read.All",
     "Reports.Read.All",
-    "Sites.Read.All",
     "AuditLog.Read.All",
+    "Policy.Read.All",
+    "UserAuthenticationMethod.Read.All",
+    # Application.Read.All: lists service principals + their OAuth
+    # consent grants (third-party app access). SharePointTenantSettings.
+    # Read.All: the tenant-wide external-sharing policy setting — lives
+    # on the Graph BETA endpoint, not v1.0, confirmed by a live 403 with
+    # v1.0's URL rejected outright before this scope was added.
+    "Application.Read.All",
+    "SharePointTenantSettings.Read.All",
+    # Sites.ReadWrite.All (replaces the earlier read-only Sites.Read.All —
+    # a superset, so listed once) — this tenant admin connection is now
+    # also the identity that performs SharePoint-site migrations
+    # (migrations_core), not just site reporting. A deliberate choice:
+    # one admin identity can migrate any site in the tenant, rather than
+    # asking every individual employee to grant a broader personal scope.
+    "Sites.ReadWrite.All",
 ]
+
+GRAPH_BETA_BASE = "https://graph.microsoft.com/beta"
 
 
 def _msal_app() -> msal.ConfidentialClientApplication:
@@ -84,7 +105,18 @@ def get_access_token(db: Session, admin_user_id: int) -> str | None:
         return None
 
     if record.expires_at and record.expires_at <= datetime.now(timezone.utc) and record.refresh_token:
-        result = _refresh(record.refresh_token)
+        try:
+            result = _refresh(record.refresh_token)
+        except RuntimeError:
+            # Confirmed live: a refresh token can't silently pick up a
+            # scope added after it was issued (e.g. GRAPH_SCOPES growing
+            # this session) — Azure AD rejects it with invalid_grant
+            # rather than partially honoring it. That's routine, expected
+            # OAuth behavior whenever the requested scope changes, not a
+            # bug — the fix is a fresh interactive connect, so this reads
+            # as "not connected" (every caller already handles that
+            # gracefully) rather than an unhandled 500.
+            return None
         token_service.save_tokens(
             db, admin_user_id, "microsoft365",
             access_token=result["access_token"],
@@ -280,6 +312,75 @@ def _get_mfa_coverage(access_token: str) -> dict:
     }
 
 
+def _get_security_defaults(access_token: str) -> dict:
+    """Security Defaults is the free, tenant-wide "require MFA for
+    everyone" toggle most small tenants without Conditional Access
+    (a Premium P1 feature) rely on. A simple on/off, not per-user detail,
+    but it's a real, accurate signal available on any licensing tier."""
+    data = _graph_get(access_token, "/policies/identitySecurityDefaultsEnforcementPolicy")
+    return {"enabled": bool(data.get("isEnabled"))}
+
+
+_MFA_CAPABLE_METHOD_TYPES = {
+    "#microsoft.graph.phoneAuthenticationMethod",
+    "#microsoft.graph.microsoftAuthenticatorAuthenticationMethod",
+    "#microsoft.graph.fido2AuthenticationMethod",
+    "#microsoft.graph.windowsHelloForBusinessAuthenticationMethod",
+    "#microsoft.graph.softwareOathAuthenticationMethod",
+    "#microsoft.graph.temporaryAccessPassAuthenticationMethod",
+}
+
+
+def _get_mfa_coverage_per_user(access_token: str) -> dict:
+    """Non-Premium alternative to _get_mfa_coverage(): lists each user's
+    own registered authentication methods (/users/{id}/authentication/
+    methods) rather than the aggregate report, and checks for any method
+    beyond a plain password. This is a basic per-user identity lookup,
+    not a "report," so it isn't gated behind Azure AD Premium the way
+    userRegistrationDetails is — confirmed live against a Business Basic
+    tenant with no Premium add-on."""
+    users = _graph_get(access_token, "/users?$select=id,displayName,userPrincipalName").get("value", [])
+    per_user = []
+    registered = 0
+    unknown = 0
+    last_error: requests.HTTPError | None = None
+    for u in users:
+        try:
+            methods = _graph_get(access_token, f"/users/{u['id']}/authentication/methods").get("value", [])
+            has_mfa = any(m.get("@odata.type") in _MFA_CAPABLE_METHOD_TYPES for m in methods)
+        except requests.HTTPError as e:
+            has_mfa = None
+            unknown += 1
+            last_error = e
+        if has_mfa:
+            registered += 1
+        per_user.append(
+            {
+                "name": u.get("displayName"),
+                "upn": u.get("userPrincipalName"),
+                "mfa_registered": has_mfa,
+            }
+        )
+
+    total = len(users)
+    # If every single per-user lookup failed, this is a scope/permission
+    # problem (e.g. UserAuthenticationMethod.Read.All not actually
+    # granted yet), not "confirmed 0% MFA coverage" — surface it as the
+    # failure it is rather than reporting fabricated-looking certainty.
+    if total and unknown == total and last_error is not None:
+        raise last_error
+
+    checkable = total - unknown
+    return {
+        "total_users": total,
+        "mfa_registered": registered,
+        "mfa_coverage_percent": round((registered / checkable) * 100, 1) if checkable else None,
+        "unknown_count": unknown,
+        "users": per_user,
+        "source": "per-user registered authentication methods (works without Premium licensing)",
+    }
+
+
 def _get_inactive_accounts(access_token: str) -> dict:
     """Approximates inactivity from OneDrive usage-report "Last Activity
     Date" — true sign-in-based inactivity needs the `signInActivity`
@@ -391,17 +492,140 @@ def _get_audit_events(access_token: str) -> dict:
     }
 
 
+def _get_teams_activity(access_token: str) -> dict:
+    """Same CSV-report pattern as the OneDrive usage report, pointed at
+    Teams user activity instead — active users and message counts over
+    the period, per Microsoft's documented column names. Column names
+    unverified against a live tenant with real Teams usage (the test
+    tenant this was built against has none yet)."""
+    resp = requests.get(
+        f"{GRAPH_BASE}/reports/getTeamsUserActivityUserDetail(period='D30')",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    rows = list(csv.DictReader(io.StringIO(resp.text)))
+
+    active_users = sum(1 for r in rows if (r.get("Last Activity Date") or "").strip())
+    total_channel_messages = sum(int(r.get("Team Chat Message Count", 0) or 0) for r in rows)
+    total_calls = sum(int(r.get("Call Count", 0) or 0) for r in rows)
+
+    return {
+        "total_users": len(rows),
+        "active_users_30d": active_users,
+        "channel_messages_30d": total_channel_messages,
+        "calls_30d": total_calls,
+    }
+
+
+def _get_mailbox_usage(access_token: str) -> dict:
+    """Same CSV-report pattern again, for Exchange mailbox storage.
+    Column names per Microsoft's documented schema, unverified against a
+    live tenant the same way the OneDrive report's columns were confirmed
+    (no licensed mailbox exists yet in the test tenant to check rows
+    against, only that the header row itself matches)."""
+    resp = requests.get(
+        f"{GRAPH_BASE}/reports/getMailboxUsageDetail(period='D30')",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    rows = list(csv.DictReader(io.StringIO(resp.text)))
+
+    used = sum(int(r.get("Storage Used (Byte)", 0) or 0) for r in rows)
+    total_item_count = sum(int(r.get("Item Count", 0) or 0) for r in rows)
+
+    return {
+        "total_mailboxes": len(rows),
+        "storage_used": format_bytes(used),
+        "total_item_count": total_item_count,
+    }
+
+
+# Microsoft's own first-party service principals all share this
+# well-known home tenant id — used to filter first-party Microsoft apps
+# (Office, Teams, etc.) out of the "third-party app access" list below,
+# since those aren't the kind of access grant this metric is meant to
+# surface.
+_MICROSOFT_FIRST_PARTY_TENANT_ID = "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
+
+
+def _get_app_grants(access_token: str) -> dict:
+    """Which apps (third-party or otherwise) have been granted delegated
+    OAuth access to this tenant's data, and what scopes. Needs
+    Application.Read.All. Unverified against a live response with real
+    third-party apps installed — this test tenant has none yet, so the
+    grants list will legitimately be empty or Microsoft-only even when
+    this works correctly."""
+    grants = _graph_get(access_token, "/oauth2PermissionGrants?$top=200").get("value", [])
+
+    sp_lookup: dict[str, dict] = {}
+    for sp_id in {g["clientId"] for g in grants if g.get("clientId")}:
+        try:
+            sp_lookup[sp_id] = _graph_get(
+                access_token, f"/servicePrincipals/{sp_id}?$select=id,displayName,appOwnerOrganizationId"
+            )
+        except requests.HTTPError:
+            continue
+
+    apps: dict[str, dict] = {}
+    for g in grants:
+        sp = sp_lookup.get(g.get("clientId"), {})
+        if sp.get("appOwnerOrganizationId") == _MICROSOFT_FIRST_PARTY_TENANT_ID:
+            continue  # Microsoft's own first-party apps, not third-party access
+        name = sp.get("displayName") or g.get("clientId") or "Unknown app"
+        entry = apps.setdefault(name, {"name": name, "scopes": set(), "consent_type": g.get("consentType"), "grant_count": 0})
+        entry["scopes"].update((g.get("scope") or "").split())
+        entry["grant_count"] += 1
+
+    app_list = [{**a, "scopes": sorted(a["scopes"])} for a in apps.values()]
+    app_list.sort(key=lambda a: -a["grant_count"])
+
+    return {"total_apps": len(app_list), "apps": app_list}
+
+
+def _get_sharing_policy(access_token: str) -> dict:
+    """The tenant-wide SharePoint/OneDrive external-sharing SETTING (a
+    single policy value — "is external sharing even allowed, and at what
+    level"), not the per-file scan _walk_site_drive_sharing does. Lives
+    on Graph's BETA endpoint, not v1.0 — field names per Microsoft's beta
+    docs, unverified against a live response."""
+    resp = requests.get(
+        f"{GRAPH_BETA_BASE}/admin/sharepoint/settings",
+        headers={"Authorization": f"Bearer {access_token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return {
+        "sharing_capability": data.get("sharingCapability"),
+        "sharing_domain_restriction_mode": data.get("sharingDomainRestrictionMode"),
+    }
+
+
 def _list_sites(access_token: str) -> list[dict]:
     return _graph_get(access_token, "/sites?search=*").get("value", [])
 
 
-def _walk_site_drive_sharing(access_token: str, site_id: str) -> tuple[int, int, int]:
+def _walk_site_drive_sharing(
+    access_token: str, site_id: str, site_name: str
+) -> tuple[int, int, int, list[dict], list[dict]]:
     """Same delta + `shared` facet approach verified for the personal
     OneDrive connector (integrations_core/microsoft.py's
     _list_all_items), pointed at a SharePoint site's drive instead of
-    /me/drive. Returns (total_items, anyone_with_link_count, shared_count)."""
+    /me/drive. Returns (total_items, anyone_with_link_count, shared_count,
+    shared_items, all_items) — shared_items carries enough detail (name,
+    link, scope) to list on the Shared Documents tab's "shared only" view;
+    all_items is the complete inventory (every file/folder, shared or
+    not) for the "all files" view and for feeding a real migration plan,
+    not just a sharing tally."""
     total = anyone_with_link = shared_other = 0
-    url = f"{GRAPH_BASE}/sites/{site_id}/drive/root/delta?$select=shared,deleted,parentReference"
+    shared_items: list[dict] = []
+    all_items: list[dict] = []
+    url = (
+        f"{GRAPH_BASE}/sites/{site_id}/drive/root/delta"
+        "?$select=name,webUrl,shared,deleted,parentReference,folder,size"
+    )
     while url:
         resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=30)
         resp.raise_for_status()
@@ -413,13 +637,34 @@ def _walk_site_drive_sharing(access_token: str, site_id: str) -> tuple[int, int,
                 continue  # the drive-root bookkeeping entry, not real content
             total += 1
             shared_facet = item.get("shared")
+            scope = None
             if shared_facet:
-                if shared_facet.get("scope") == "anonymous":
+                scope = shared_facet.get("scope") or "unknown"
+                if scope == "anonymous":
                     anyone_with_link += 1
                 else:
                     shared_other += 1
+                shared_items.append(
+                    {
+                        "name": item.get("name"),
+                        "site": site_name,
+                        "web_url": item.get("webUrl"),
+                        "scope": scope,
+                    }
+                )
+            all_items.append(
+                {
+                    "name": item.get("name"),
+                    "site": site_name,
+                    "is_folder": "folder" in item,
+                    "size": item.get("size") or 0,
+                    "web_url": item.get("webUrl"),
+                    "shared": bool(shared_facet),
+                    "scope": scope,
+                }
+            )
         url = data.get("@odata.nextLink")
-    return total, anyone_with_link, shared_other
+    return total, anyone_with_link, shared_other, shared_items, all_items
 
 
 def _analyze_site(access_token: str, site: dict) -> dict:
@@ -438,10 +683,14 @@ def _analyze_site(access_token: str, site: dict) -> dict:
         result["storage_error"] = str(e)
 
     try:
-        total_files, anyone_with_link, shared_other = _walk_site_drive_sharing(access_token, site["id"])
+        total_files, anyone_with_link, shared_other, shared_items, all_items = _walk_site_drive_sharing(
+            access_token, site["id"], site_name
+        )
         result["total_files"] = total_files
         result["anyone_with_link_count"] = anyone_with_link
         result["shared_count"] = shared_other
+        result["_shared_items"] = shared_items
+        result["_all_items"] = all_items
     except requests.HTTPError as e:
         result["sharing_error"] = str(e)
 
@@ -459,13 +708,20 @@ def generate_security_report(db: Session, admin_user_id: int) -> dict:
         result["mfa_coverage"] = _get_mfa_coverage(access_token)
     except requests.HTTPError as e:
         if e.response is not None and "RequestFromNonPremiumTenantOrB2CTenant" in e.response.text:
-            result["warnings"].append(
-                "MFA registration coverage requires Azure AD Premium P1 or P2 licensing — "
-                "confirmed live that this isn't available on your current plan (not a bug, "
-                "a licensing wall)."
-            )
+            # Confirmed live: this specific report needs Azure AD Premium
+            # regardless of scope. Falls back to the per-user method,
+            # which works without it — see _get_mfa_coverage_per_user.
+            try:
+                result["mfa_coverage"] = _get_mfa_coverage_per_user(access_token)
+            except requests.HTTPError as e2:
+                result["warnings"].append(f"Couldn't fetch per-user MFA methods: {e2}")
         else:
             result["warnings"].append(f"Couldn't fetch MFA registration coverage: {e}")
+
+    try:
+        result["security_defaults"] = _get_security_defaults(access_token)
+    except requests.HTTPError as e:
+        result["warnings"].append(f"Couldn't fetch Security Defaults policy: {e}")
 
     try:
         result["inactive_accounts"] = _get_inactive_accounts(access_token)
@@ -482,6 +738,26 @@ def generate_security_report(db: Session, admin_user_id: int) -> dict:
     except requests.HTTPError as e:
         result["warnings"].append(f"Couldn't fetch audit log events: {e}")
 
+    try:
+        result["teams_activity"] = _get_teams_activity(access_token)
+    except (requests.HTTPError, ValueError, csv.Error) as e:
+        result["warnings"].append(f"Couldn't fetch Teams activity: {e}")
+
+    try:
+        result["mailbox_usage"] = _get_mailbox_usage(access_token)
+    except (requests.HTTPError, ValueError, csv.Error) as e:
+        result["warnings"].append(f"Couldn't fetch mailbox usage: {e}")
+
+    try:
+        result["app_grants"] = _get_app_grants(access_token)
+    except requests.HTTPError as e:
+        result["warnings"].append(f"Couldn't fetch app access grants: {e}")
+
+    try:
+        result["sharing_policy"] = _get_sharing_policy(access_token)
+    except requests.HTTPError as e:
+        result["warnings"].append(f"Couldn't fetch tenant sharing policy: {e}")
+
     sites: list[dict] = []
     try:
         sites = _list_sites(access_token)
@@ -489,7 +765,7 @@ def generate_security_report(db: Session, admin_user_id: int) -> dict:
         result["warnings"].append(f"Couldn't list SharePoint sites: {e}")
 
     site_details = [_analyze_site(access_token, s) for s in sites]
-    result["sites"] = [{k: v for k, v in s.items() if k != "_storage_used_bytes"} for s in site_details]
+    result["sites"] = [{k: v for k, v in s.items() if not k.startswith("_")} for s in site_details]
     result["external_sharing"] = {
         "total_files_scanned": sum(s.get("total_files", 0) for s in site_details),
         "anyone_with_link_count": sum(s.get("anyone_with_link_count", 0) for s in site_details),
@@ -500,6 +776,62 @@ def generate_security_report(db: Session, admin_user_id: int) -> dict:
     if total_storage_bytes:
         token_service.record_storage_snapshot(db, admin_user_id, "microsoft365", total_storage_bytes)
     result["storage_growth"] = token_service.compute_storage_growth(db, admin_user_id, "microsoft365")
+
+    if not result["warnings"]:
+        result.pop("warnings", None)
+
+    return result
+
+
+def generate_storage_report(db: Session, admin_user_id: int) -> dict:
+    """Thin wrapper: generate_security_report() already computes per-site
+    storage and the growth rate as part of its site walk, so this reuses
+    it rather than duplicating that walk — kept as its own function
+    purely for routing symmetry with the other two providers, whose
+    storage report is a separate, cheaper call."""
+    return generate_security_report(db, admin_user_id)
+
+
+def generate_documents_report(db: Session, admin_user_id: int) -> dict:
+    """Populates the Shared Documents tab: an actual item-level listing of
+    externally-shared files across every SharePoint site, not just a
+    tally. Separate from generate_security_report() even though both walk
+    the same sites, since a page only needs one or the other and there's
+    no reason to pay for both walks on every load."""
+    access_token = get_access_token(db, admin_user_id)
+    if not access_token:
+        return {"connected": False, "error": "Microsoft 365 admin is not connected."}
+
+    result: dict = {"connected": True, "error": None, "warnings": []}
+
+    sites: list[dict] = []
+    try:
+        sites = _list_sites(access_token)
+    except requests.HTTPError as e:
+        result["warnings"].append(f"Couldn't list SharePoint sites: {e}")
+
+    site_details = [_analyze_site(access_token, s) for s in sites]
+    shared_items: list[dict] = []
+    all_items: list[dict] = []
+    for s in site_details:
+        shared_items.extend(s.get("_shared_items") or [])
+        all_items.extend(s.get("_all_items") or [])
+        if s.get("sharing_error"):
+            result["warnings"].append(f"Couldn't check sharing on site '{s['name']}': {s['sharing_error']}")
+
+    shared_items.sort(key=lambda i: i["scope"] != "anonymous")  # anonymous (riskiest) first
+    result["shared_items"] = shared_items
+    result["total_shared"] = len(shared_items)
+    result["anyone_with_link_count"] = sum(1 for i in shared_items if i["scope"] == "anonymous")
+
+    # Complete inventory — every file/folder across every site, not just
+    # the ones that are shared. This is what a real migration plan needs
+    # (see migrations_core's business-storage support), not just a
+    # sharing-exposure count.
+    result["all_items"] = all_items
+    result["total_files"] = sum(1 for i in all_items if not i["is_folder"])
+    result["total_folders"] = sum(1 for i in all_items if i["is_folder"])
+    result["total_bytes"] = sum(i.get("size") or 0 for i in all_items if not i["is_folder"])
 
     if not result["warnings"]:
         result.pop("warnings", None)

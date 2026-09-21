@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ provider_label }} Storage &amp; Growth</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/tenant_report.css">
+    <style>
+        :root {
+            {% if provider == "microsoft365" %}--primary: #0078d4; --primary-dark: #005a9e; --primary-light: #eff6fc;
+            {% elif provider == "google-workspace" %}--primary: #1a73e8; --primary-dark: #1558b0; --primary-light: #e8f0fe;
+            {% else %}--primary: #0061ff; --primary-dark: #0050d4; --primary-light: #f0f5ff;{% endif %}
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="top-nav">
+        <div class="brand-section">
+            <div class="logo-icon">💾</div>
+            <div class="brand-info">
+                <h1>{{ provider_label }}</h1>
+                <p>Storage &amp; Growth</p>
+            </div>
+        </div>
+        <div class="nav-actions">
+            <a href="/tenants" class="btn btn-outline">Organization Admin</a>
+            <a href="/dashboard" class="btn btn-outline">Home</a>
+        </div>
+    </div>
+
+    <div class="tab-nav">
+        <a href="/organization/{{ provider }}" class="tab-link">Overview</a>
+        <a href="/organization/{{ provider }}/security" class="tab-link">Security &amp; Risks</a>
+        <a href="/organization/{{ provider }}/documents" class="tab-link">Shared Documents</a>
+        <a href="/organization/{{ provider }}/storage" class="tab-link active">Storage &amp; Growth</a>
+        <a href="/organization/{{ provider }}/recommendations" class="tab-link">Recommendations</a>
+    </div>
+
+    {% if not connected %}
+    <div class="card empty-placeholder">
+        <h3>{{ provider_label }} Not Connected</h3>
+        <p>Connect this organization from the Overview tab first.</p>
+        <a href="/organization/{{ provider }}" class="btn btn-primary" style="margin-top:12px;">Go to Overview</a>
+    </div>
+    {% elif error %}
+    <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
+    {% else %}
+
+    {% set used = total_storage_used or storage_used %}
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Storage Used</span></div>
+            <div class="stat-value">{{ used or "-" }}</div>
+            {% if storage_total %}<div class="stat-subtext">of {{ storage_total }}{% if storage_percent is not none %} ({{ storage_percent }}%){% endif %}</div>{% endif %}
+            {% if storage_percent is not none %}
+            <div class="progress-bar-container"><div class="progress-bar-fill" style="width: {{ storage_percent }}%;"></div></div>
+            {% endif %}
+        </div>
+        {% if storage_growth and storage_growth.available %}
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Monthly Growth</span></div>
+            <div class="stat-value">{{ (storage_growth.monthly_rate_bytes / 1000000000) | round(2) }} GB</div>
+            <div class="stat-subtext">based on the last {{ storage_growth.period_days }} days</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if storage_growth and not storage_growth.available %}
+    <div class="alert alert-info">{{ storage_growth.note }}</div>
+    {% endif %}
+
+    {% if sites %}
+    <div class="card">
+        <div class="card-title">Storage Per Site</div>
+        <div class="table-responsive">
+            <table>
+                <thead><tr><th>Site</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
+                <tbody>
+                    {% for site in sites %}
+                    <tr>
+                        <td>{{ site.name }}</td>
+                        <td>{{ site.storage_used or "-" }}</td>
+                        <td>{{ site.storage_total or "Unknown" }}</td>
+                        <td>{{ site.storage_percent ~ "%" if site.storage_percent is not none else "-" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if warnings %}{% for w in warnings %}<div class="alert alert-warning">{{ w }}</div>{% endfor %}{% endif %}
+    {% endif %}
+</div>
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

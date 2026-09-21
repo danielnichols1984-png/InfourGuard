@@ -1,8 +1,9 @@
 import asyncio
+import os
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ from shared.subscriptions_core.db import get_db as get_subscriptions_db, init_db
 from shared.subscriptions_core.routes import router as subscriptions_router
 from shared.subscriptions_core.service import get_user_plan, seed_default_plans
 from shared.tenants_core import dropbox_team, google_admin, microsoft_graph
+from shared.tenants_core import recommendations as tenants_recommendations
 from shared.tenants_core import service as tenants_service
 from shared.tenants_core.db import get_db as get_tenants_db, init_db as init_tenants_db
 from shared.tenants_core.routes import router as tenants_router
@@ -42,6 +44,33 @@ app.add_middleware(
 templates = Jinja2Templates(directory="app/web/templates")
 templates.env.cache = None
 app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
+
+# The built React SPA (`npm run build` in frontend/) is served under /app,
+# same-origin with the Jinja pages and API — kept off "/" because the SPA's
+# own client-side routes (/login, /dashboard, /plans, ...) are identical
+# path names to the existing Jinja page routes below and would collide.
+# Not present in local dev unless the frontend has been built, so this is
+# skipped entirely (falls back to running the Vite dev server separately)
+# rather than crashing startup on a missing directory.
+_SPA_DIST_DIR = os.path.abspath("../frontend/dist")
+if os.path.isdir(_SPA_DIST_DIR):
+    app.mount("/app/assets", StaticFiles(directory=os.path.join(_SPA_DIST_DIR, "assets")), name="spa-assets")
+
+    @app.get("/app", include_in_schema=False)
+    @app.get("/app/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str = ""):
+        # Real files at the dist root (favicon.svg etc.) are served as-is;
+        # anything else is a client-side route, so fall back to index.html.
+        # Path is resolved and checked against _SPA_DIST_DIR to rule out
+        # traversal via a full_path containing "../" segments.
+        candidate = os.path.abspath(os.path.join(_SPA_DIST_DIR, full_path))
+        if (
+            full_path
+            and os.path.commonpath([candidate, _SPA_DIST_DIR]) == _SPA_DIST_DIR
+            and os.path.isfile(candidate)
+        ):
+            return FileResponse(candidate)
+        return FileResponse(os.path.join(_SPA_DIST_DIR, "index.html"))
 
 
 def _wants_html(request: Request) -> bool:
@@ -238,7 +267,11 @@ def tenant_google_workspace_page(
     if not user:
         return RedirectResponse("/login")
     data = google_admin.generate_tenant_report(db, user.id)
-    return templates.TemplateResponse(request, "tenant_google_workspace.html", {"user": user, **data})
+    return templates.TemplateResponse(
+        request,
+        "tenant_google_workspace.html",
+        {"user": user, "provider": "google-workspace", "provider_label": "Google Workspace", "active_tab": "overview", **data},
+    )
 
 
 @app.post("/organization/google-workspace/email_report", response_class=HTMLResponse)
@@ -258,6 +291,9 @@ def tenant_google_workspace_email_report(
         "tenant_google_workspace.html",
         {
             "user": user,
+            "provider": "google-workspace",
+            "provider_label": "Google Workspace",
+            "active_tab": "overview",
             **data,
             "success": f"Report successfully emailed to {email}!" if sent else None,
             "error": data.get("error") or (None if sent else "Failed to send email. Check SMTP settings."),
@@ -282,7 +318,11 @@ def tenant_microsoft365_page(
     if not user:
         return RedirectResponse("/login")
     data = microsoft_graph.generate_tenant_report(db, user.id)
-    return templates.TemplateResponse(request, "tenant_microsoft365.html", {"user": user, **data})
+    return templates.TemplateResponse(
+        request,
+        "tenant_microsoft365.html",
+        {"user": user, "provider": "microsoft365", "provider_label": "Microsoft 365", "active_tab": "overview", **data},
+    )
 
 
 @app.post("/organization/microsoft365/email_report", response_class=HTMLResponse)
@@ -302,6 +342,9 @@ def tenant_microsoft365_email_report(
         "tenant_microsoft365.html",
         {
             "user": user,
+            "provider": "microsoft365",
+            "provider_label": "Microsoft 365",
+            "active_tab": "overview",
             **data,
             "success": f"Report successfully emailed to {email}!" if sent else None,
             "error": data.get("error") or (None if sent else "Failed to send email. Check SMTP settings."),
@@ -326,7 +369,11 @@ def tenant_dropbox_business_page(
     if not user:
         return RedirectResponse("/login")
     data = dropbox_team.generate_tenant_report(db, user.id)
-    return templates.TemplateResponse(request, "tenant_dropbox_business.html", {"user": user, **data})
+    return templates.TemplateResponse(
+        request,
+        "tenant_dropbox_business.html",
+        {"user": user, "provider": "dropbox-business", "provider_label": "Dropbox Business", "active_tab": "overview", **data},
+    )
 
 
 @app.post("/organization/dropbox-business/email_report", response_class=HTMLResponse)
@@ -346,6 +393,9 @@ def tenant_dropbox_business_email_report(
         "tenant_dropbox_business.html",
         {
             "user": user,
+            "provider": "dropbox-business",
+            "provider_label": "Dropbox Business",
+            "active_tab": "overview",
             **data,
             "success": f"Report successfully emailed to {email}!" if sent else None,
             "error": data.get("error") or (None if sent else "Failed to send email. Check SMTP settings."),
@@ -361,6 +411,86 @@ def tenant_dropbox_business_disconnect(
         return RedirectResponse("/login")
     tenants_service.delete_tokens(db, user.id, "dropbox_business")
     return RedirectResponse("/organization/dropbox-business", status_code=302)
+
+
+# --- Organization tabs: one parameterized route per tab, shared across ----
+# all 3 providers (each provider module implements the same 4 report
+# functions with the same signature — see tenants_core/routes.py's
+# equivalent JSON endpoints for the same reasoning).
+
+_TENANT_PROVIDER_MODULES = {
+    "google-workspace": (google_admin, "Google Workspace"),
+    "microsoft365": (microsoft_graph, "Microsoft 365"),
+    "dropbox-business": (dropbox_team, "Dropbox Business"),
+}
+
+
+def _tenant_module_or_404(provider: str):
+    if provider not in _TENANT_PROVIDER_MODULES:
+        raise StarletteHTTPException(status_code=404, detail="Unknown organization provider")
+    return _TENANT_PROVIDER_MODULES[provider]
+
+
+@app.get("/organization/{provider}/security", response_class=HTMLResponse)
+def tenant_security_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _tenant_module_or_404(provider)
+    data = module.generate_security_report(db, user.id)
+    return templates.TemplateResponse(
+        request, "tenant_security.html", {"user": user, "provider": provider, "provider_label": label, **data}
+    )
+
+
+@app.get("/organization/{provider}/documents", response_class=HTMLResponse)
+def tenant_documents_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _tenant_module_or_404(provider)
+    data = module.generate_documents_report(db, user.id)
+    return templates.TemplateResponse(
+        request, "tenant_documents.html", {"user": user, "provider": provider, "provider_label": label, **data}
+    )
+
+
+@app.get("/organization/{provider}/storage", response_class=HTMLResponse)
+def tenant_storage_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _tenant_module_or_404(provider)
+    data = module.generate_storage_report(db, user.id)
+    return templates.TemplateResponse(
+        request, "tenant_storage.html", {"user": user, "provider": provider, "provider_label": label, **data}
+    )
+
+
+@app.get("/organization/{provider}/recommendations", response_class=HTMLResponse)
+def tenant_recommendations_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _tenant_module_or_404(provider)
+
+    tenant_data = module.generate_tenant_report(db, user.id)
+    context = {"user": user, "provider": provider, "provider_label": label}
+    if not tenant_data.get("connected"):
+        context.update(tenant_data)
+        context["recommendations"] = []
+        return templates.TemplateResponse(request, "tenant_recommendations.html", context)
+
+    security_data = module.generate_security_report(db, user.id)
+    merged = {**tenant_data, **{k: v for k, v in security_data.items() if k not in ("connected", "error")}}
+    context["connected"] = True
+    context["error"] = None
+    context["recommendations"] = tenants_recommendations.generate_recommendations(merged)
+    return templates.TemplateResponse(request, "tenant_recommendations.html", context)
 
 
 @app.get("/google/report", response_class=HTMLResponse)

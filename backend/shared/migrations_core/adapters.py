@@ -43,10 +43,17 @@ def user_has_destination_write_access(user_id: int, provider: str) -> bool:
 
 
 class ProviderAdapter:
-    def get_client(self, user_id: int):
+    def get_client(self, user_id: int, container_type: str | None = None, container_id: str | None = None):
+        """user_id is the migrating individual for a personal-account
+        mapping (container_type is None, the original and still-default
+        behavior). For a business-storage mapping (container_type is
+        "shared_drive" / "site" / "team_folder"), user_id is instead the
+        ADMIN whose tenant connection performs the work, and container_id
+        is that container's provider-native id — see each concrete
+        adapter for exactly which tenant connection it pulls from."""
         raise NotImplementedError
 
-    def resolve_root(self, client, root_path: str):
+    def resolve_root(self, client, root_path: str, container_type: str | None = None, container_id: str | None = None):
         """Resolves an existing path to a provider-native ref. Raises if it
         doesn't exist — used for the *source* side, which must already
         exist."""
@@ -65,10 +72,10 @@ class ProviderAdapter:
     def ensure_child_folder(self, client, parent_ref, name: str):
         raise NotImplementedError
 
-    def ensure_path(self, client, path: str):
+    def ensure_path(self, client, path: str, container_type: str | None = None, container_id: str | None = None):
         """Resolves a path to a provider-native ref, creating any missing
         segments — used for the *destination* side."""
-        ref = self.resolve_root(client, "")
+        ref = self.resolve_root(client, "", container_type, container_id)
         for segment in [s for s in path.strip("/").split("/") if s]:
             ref = self.ensure_child_folder(client, ref, segment)
         return ref
@@ -94,21 +101,47 @@ class ProviderAdapter:
 
 
 class GoogleAdapter(ProviderAdapter):
-    def get_client(self, user_id):
+    def get_client(self, user_id, container_type=None, container_id=None):
+        """Returns (drive_service, drive_id) — drive_id is None for a
+        personal My Drive mapping, or the Shared Drive's id for a
+        business-storage one, threaded through to every
+        integrations_core.google function that needs corpora="drive"/
+        supportsAllDrives (see that module for details). A "shared_drive"
+        container pulls credentials from the tenant admin's Workspace
+        connection (tenants_core), not the migrating user's own personal
+        connection — this only works because that admin connection was
+        deliberately upgraded with domain-wide Drive access."""
+        if container_type == "shared_drive":
+            from shared.tenants_core.db import SessionLocal as TenantsSessionLocal
+            from shared.tenants_core import google_admin
+
+            tdb = TenantsSessionLocal()
+            try:
+                creds = google_admin.get_credentials(tdb, user_id)
+            finally:
+                tdb.close()
+            if not creds:
+                return None
+            return (google_integration.build_drive_service(creds), container_id)
+
         idb = IntegrationsSessionLocal()
         try:
             creds = google_integration.get_credentials(idb, user_id)
         finally:
             idb.close()
-        return google_integration.build_drive_service(creds) if creds else None
+        if not creds:
+            return None
+        return (google_integration.build_drive_service(creds), None)
 
-    def resolve_root(self, client, root_path):
+    def resolve_root(self, client, root_path, container_type=None, container_id=None):
+        service, drive_id = client
         if not root_path:
-            return "root"
-        return google_integration.resolve_path_to_folder_id(client, root_path)
+            return drive_id if drive_id else "root"
+        return google_integration.resolve_path_to_folder_id(service, root_path, drive_id)
 
     def list_tree(self, client, root_ref):
-        tree = google_integration.list_folder_tree(client, root_ref)
+        service, drive_id = client
+        tree = google_integration.list_folder_tree(service, root_ref, drive_id)
         result = []
         for f in tree:
             mime = f.get("mimeType")
@@ -145,37 +178,62 @@ class GoogleAdapter(ProviderAdapter):
         return result
 
     def ensure_child_folder(self, client, parent_ref, name):
-        return google_integration.ensure_folder(client, parent_ref, name)
+        service, drive_id = client
+        return google_integration.ensure_folder(service, parent_ref, name, drive_id)
 
     def download(self, client, ref, export_mime_type=None):
+        service, drive_id = client
         if export_mime_type:
-            return google_integration.export_file_bytes(client, ref, export_mime_type)
-        return google_integration.download_file_bytes(client, ref)
+            return google_integration.export_file_bytes(service, ref, export_mime_type)
+        return google_integration.download_file_bytes(service, ref, drive_id)
 
     def upload(self, client, parent_ref, name, data, mime_type):
-        result = google_integration.upload_file_bytes(client, parent_ref, name, data, mime_type)
+        service, drive_id = client
+        result = google_integration.upload_file_bytes(service, parent_ref, name, data, mime_type, drive_id)
         return {"ref": result["id"], "hash": result.get("md5Checksum")}
 
     def compute_hash(self, data):
         return google_integration.compute_md5(data)
 
     def apply_public_sharing(self, client, ref):
-        google_integration.apply_public_sharing(client, ref)
+        service, drive_id = client
+        google_integration.apply_public_sharing(service, ref, drive_id)
 
     def apply_named_sharing(self, client, ref, email):
-        google_integration.apply_named_sharing(client, ref, email)
+        service, drive_id = client
+        google_integration.apply_named_sharing(service, ref, email, drive_id=drive_id)
         return True
 
 
 class DropboxAdapter(ProviderAdapter):
-    def get_client(self, user_id):
+    def get_client(self, user_id, container_type=None, container_id=None):
+        """A "team_folder" container returns a client already fully
+        scoped to that folder's own namespace via as_admin()/
+        with_path_root() — unlike Google/Microsoft, every other method
+        below needs zero changes, since paths are just relative to
+        whatever root this client object is already scoped to."""
+        if container_type == "team_folder":
+            from shared.tenants_core.db import SessionLocal as TenantsSessionLocal
+            from shared.tenants_core import dropbox_team
+            from dropbox.common import PathRoot
+
+            tdb = TenantsSessionLocal()
+            try:
+                dbx_team = dropbox_team.get_team_client(tdb, user_id)
+                if not dbx_team:
+                    return None
+                admin_id = dropbox_team.get_admin_team_member_id(dbx_team)
+            finally:
+                tdb.close()
+            return dbx_team.as_admin(admin_id).with_path_root(PathRoot.namespace_id(container_id))
+
         idb = IntegrationsSessionLocal()
         try:
             return dropbox_integration.get_client(idb, user_id)
         finally:
             idb.close()
 
-    def resolve_root(self, client, root_path):
+    def resolve_root(self, client, root_path, container_type=None, container_id=None):
         return "" if not root_path else "/" + root_path.strip("/")
 
     def list_tree(self, client, root_ref):
@@ -219,33 +277,63 @@ class DropboxAdapter(ProviderAdapter):
 
 
 class MicrosoftAdapter(ProviderAdapter):
-    def get_client(self, user_id):
+    def get_client(self, user_id, container_type=None, container_id=None):
+        """Returns (access_token, base_path) — base_path selects which
+        drive every call operates against: "/me/drive" for a personal
+        OneDrive mapping, or f"/sites/{container_id}/drive" for a
+        business-storage one. A "site" container pulls its token from the
+        tenant admin's Microsoft 365 connection (tenants_core), not the
+        migrating user's own personal connection — this only works
+        because that admin connection was deliberately upgraded to
+        Sites.ReadWrite.All specifically for this."""
+        if container_type == "site":
+            from shared.tenants_core.db import SessionLocal as TenantsSessionLocal
+            from shared.tenants_core import microsoft_graph
+
+            tdb = TenantsSessionLocal()
+            try:
+                access_token = microsoft_graph.get_access_token(tdb, user_id)
+            finally:
+                tdb.close()
+            if not access_token:
+                return None
+            return (access_token, f"/sites/{container_id}/drive")
+
         idb = IntegrationsSessionLocal()
         try:
-            return microsoft_integration.get_access_token(idb, user_id)
+            access_token = microsoft_integration.get_access_token(idb, user_id)
         finally:
             idb.close()
+        if not access_token:
+            return None
+        return (access_token, "/me/drive")
 
-    def resolve_root(self, client, root_path):
-        return microsoft_integration.resolve_path_to_item_id(client, root_path)
+    def resolve_root(self, client, root_path, container_type=None, container_id=None):
+        access_token, base_path = client
+        return microsoft_integration.resolve_path_to_item_id(access_token, root_path, base_path)
 
     def list_tree(self, client, root_ref):
-        return microsoft_integration.list_folder_tree(client, root_ref)
+        access_token, base_path = client
+        return microsoft_integration.list_folder_tree(access_token, root_ref, base_path)
 
     def ensure_child_folder(self, client, parent_ref, name):
-        return microsoft_integration.ensure_folder(client, parent_ref, name)
+        access_token, base_path = client
+        return microsoft_integration.ensure_folder(access_token, parent_ref, name, base_path)
 
     def download(self, client, ref, export_mime_type=None):
-        return microsoft_integration.download_file_bytes(client, ref)
+        access_token, base_path = client
+        return microsoft_integration.download_file_bytes(access_token, ref, base_path)
 
     def upload(self, client, parent_ref, name, data, mime_type):
-        return microsoft_integration.upload_file_bytes(client, parent_ref, name, data)
+        access_token, base_path = client
+        return microsoft_integration.upload_file_bytes(access_token, parent_ref, name, data, base_path)
 
     def compute_hash(self, data):
         return microsoft_integration.compute_quickxorhash(data)
 
     def apply_public_sharing(self, client, ref):
-        microsoft_integration.apply_public_sharing(client, ref)
+        access_token, base_path = client
+        microsoft_integration.apply_public_sharing(access_token, ref, base_path)
 
     def apply_named_sharing(self, client, ref, email):
         # Unlike Dropbox (a real product limitation), OneDrive's /invite
@@ -255,7 +343,8 @@ class MicrosoftAdapter(ProviderAdapter):
         # optimistically report success, this makes the real call and
         # reports Graph's real response, so a wrong payload shape shows
         # up as "not recreated" instead of a false "recreated".
-        return microsoft_integration.apply_named_sharing(client, ref, email)
+        access_token, base_path = client
+        return microsoft_integration.apply_named_sharing(access_token, ref, email, base_path)
 
 
 ADAPTERS: dict[str, ProviderAdapter] = {

@@ -37,10 +37,25 @@ class MigrationUserMapping(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(Integer, ForeignKey("migration_jobs.id"), nullable=False, index=True)
+    # For a personal-account mapping (the original, still-default case),
+    # source_user_id/destination_user_id are the migrating individual's
+    # own id. For a business-storage mapping (source/destination
+    # container_type set), they're instead the ADMIN whose tenant
+    # connection performs the work — see adapters.py's get_client().
     source_user_id = Column(Integer, nullable=False, index=True)
     destination_user_id = Column(Integer, nullable=False, index=True)
     source_root_path = Column(String(1024), nullable=False, default="")
     destination_root_path = Column(String(1024), nullable=False, default="")
+    # None (default) = personal account, today's original behavior.
+    # "shared_drive" | "site" | "team_folder" = business storage — the
+    # matching *_container_id is that container's provider-native id
+    # (a Google Shared Drive id, a SharePoint site id, or a Dropbox team
+    # folder id), and root paths above are then relative to that
+    # container's own root instead of a personal account's root.
+    source_container_type = Column(String(20), nullable=True)
+    source_container_id = Column(String(255), nullable=True)
+    destination_container_type = Column(String(20), nullable=True)
+    destination_container_id = Column(String(255), nullable=True)
     # pending -> prestaging -> prestaged -> running ->
     # completed / completed_with_errors / failed
     status = Column(String(30), nullable=False, default="pending")

@@ -38,6 +38,14 @@
         </div>
     </div>
 
+    <div class="tab-nav">
+        <a href="/organization/{{ provider }}" class="tab-link{{ ' active' if active_tab == 'overview' else '' }}">Overview</a>
+        <a href="/organization/{{ provider }}/security" class="tab-link{{ ' active' if active_tab == 'security' else '' }}">Security &amp; Risks</a>
+        <a href="/organization/{{ provider }}/documents" class="tab-link{{ ' active' if active_tab == 'documents' else '' }}">Shared Documents</a>
+        <a href="/organization/{{ provider }}/storage" class="tab-link{{ ' active' if active_tab == 'storage' else '' }}">Storage &amp; Growth</a>
+        <a href="/organization/{{ provider }}/recommendations" class="tab-link{{ ' active' if active_tab == 'recommendations' else '' }}">Recommendations</a>
+    </div>
+
     {% if success %}<div class="alert alert-success"><span>✅</span><div>{{ success }}</div></div>{% endif %}
     {% if error %}<div class="alert alert-error"><span>⚠️</span><div><strong>Error:</strong> {{ error }}</div></div>{% endif %}
 
@@ -88,13 +96,6 @@
     {% if warnings %}{% for w in warnings %}<div class="alert alert-warning">{{ w }}</div>{% endfor %}{% endif %}
 
     <div class="card">
-        <div class="card-header"><div class="card-title">🛡️ Security &amp; Governance</div></div>
-        <p style="font-size: 13px; color: var(--gray-500); margin-bottom: 12px;">MFA coverage, inactive accounts, guests, external sharing, audit events, and storage growth. This walks every SharePoint site's drive, so it's loaded on demand rather than automatically.</p>
-        <button id="load-security-btn" class="btn btn-primary">Load Security &amp; Governance Report</button>
-        <div id="security-body" style="margin-top: 16px;"></div>
-    </div>
-
-    <div class="card">
         <div class="card-title">📧 Email This Report</div>
         <form action="/organization/microsoft365/email_report" method="post" class="email-form">
             <input type="email" name="email" placeholder="Enter recipient email address" required>
@@ -103,103 +104,6 @@
     </div>
     {% endif %}
 </div>
-
-<script>
-function renderSecurityReport(data) {
-    if (!data.connected) return `<p>${data.error || "Not connected."}</p>`;
-    if (data.error) return `<div class="alert alert-error">${data.error}</div>`;
-
-    let html = "<div class=\"stats-grid\">";
-
-    if (data.mfa_coverage) {
-        const m = data.mfa_coverage;
-        html += `<div class="stat-card"><div class="stat-card-header"><span class="stat-label">MFA Coverage</span></div>
-            <div class="stat-value">${m.mfa_registered} <span style="font-size:14px;color:var(--gray-500);">of ${m.total_users}</span></div>
-            <div class="stat-subtext">${m.mfa_coverage_percent != null ? m.mfa_coverage_percent + "%" : "-"}</div></div>`;
-    }
-    if (data.guest_accounts) {
-        html += `<div class="stat-card"><div class="stat-card-header"><span class="stat-label">External Guests</span></div>
-            <div class="stat-value">${data.guest_accounts.total_guests}</div></div>`;
-    }
-    if (data.external_sharing) {
-        const s = data.external_sharing;
-        html += `<div class="stat-card"><div class="stat-card-header"><span class="stat-label">Anyone-with-link</span></div>
-            <div class="stat-value" style="color:${s.anyone_with_link_count > 0 ? 'var(--danger)' : 'var(--gray-900)'};">${s.anyone_with_link_count}</div>
-            <div class="stat-subtext">${s.shared_count} shared with specific people/org, ${s.total_files_scanned} files scanned</div></div>`;
-    }
-    if (data.total_storage_used) {
-        html += `<div class="stat-card"><div class="stat-card-header"><span class="stat-label">Tenant Storage</span></div>
-            <div class="stat-value">${data.total_storage_used}</div></div>`;
-    }
-    html += "</div>";
-
-    if (data.inactive_accounts) {
-        const i = data.inactive_accounts;
-        const b = i.days_since_last_onedrive_activity || {};
-        html += `<div class="card"><div class="card-title">Inactive Accounts (OneDrive activity)</div>
-            <dl class="kv">
-                <dt>0-30 days</dt><dd>${b["0-30"] ?? 0}</dd>
-                <dt>31-60 days</dt><dd>${b["31-60"] ?? 0}</dd>
-                <dt>61-90 days</dt><dd>${b["61-90"] ?? 0}</dd>
-                <dt>90+ days</dt><dd>${b["90+"] ?? 0}</dd>
-            </dl><div class="alert alert-info" style="margin-top:12px;">${i.approximation_note}</div></div>`;
-    }
-
-    if (data.guest_accounts && Object.keys(data.guest_accounts.by_external_domain || {}).length) {
-        html += `<div class="card"><div class="card-title">Guest Domains</div><ul class="plain">` +
-            Object.entries(data.guest_accounts.by_external_domain).map(([d, c]) => `<li>${d}: ${c}</li>`).join("") +
-            `</ul></div>`;
-    }
-
-    if (data.storage_growth) {
-        const g = data.storage_growth;
-        html += g.available
-            ? `<div class="card"><div class="card-title">Storage Growth</div><dl class="kv"><dt>Rate (last ${g.period_days}d, scaled to 30d)</dt><dd>${(g.monthly_rate_bytes / 1e9).toFixed(2)} GB/mo</dd></dl></div>`
-            : `<div class="alert alert-info">${g.note}</div>`;
-    }
-
-    if (data.audit_events) {
-        const a = data.audit_events;
-        html += `<div class="card"><div class="card-title">Recent Audit Events</div>`;
-        html += a.recent_events.length
-            ? "<ul class=\"plain\">" + a.recent_events.slice(0, 15).map((e) =>
-                `<li>${e.date ? new Date(e.date).toLocaleString() : "-"} — <strong>${e.activity}</strong> (${e.actor || "unknown"}) — ${e.result}</li>`
-              ).join("") + "</ul>"
-            : "<p>No recent events.</p>";
-        html += `<div class="alert alert-info" style="margin-top:12px;">${a.note}</div></div>`;
-    }
-
-    if (data.sites && data.sites.length) {
-        html += `<div class="card"><div class="card-title">Storage Per Site</div><ul class="plain">` +
-            data.sites.map((s) => `<li>${s.name}: ${s.storage_used || "-"}${s.storage_total ? " / " + s.storage_total : ""}</li>`).join("") +
-            `</ul></div>`;
-    }
-
-    if (data.warnings && data.warnings.length) {
-        html += data.warnings.map((w) => `<div class="alert alert-warning">${w}</div>`).join("");
-    }
-
-    return html;
-}
-
-const loadBtn = document.getElementById("load-security-btn");
-if (loadBtn) {
-    loadBtn.addEventListener("click", async () => {
-        const container = document.getElementById("security-body");
-        loadBtn.disabled = true;
-        container.innerHTML = "<p>Loading&hellip; this walks every SharePoint site and can take a while.</p>";
-        try {
-            const res = await fetch("/tenants/microsoft365/security-report");
-            const data = await res.json();
-            container.innerHTML = renderSecurityReport(data);
-        } catch (e) {
-            container.innerHTML = `<div class="alert alert-error">Couldn't load: ${e.message}</div>`;
-        } finally {
-            loadBtn.disabled = false;
-        }
-    });
-}
-</script>
 
     <script src="/static/js/impersonation-banner.js"></script>
 </body>

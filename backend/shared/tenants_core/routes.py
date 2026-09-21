@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr
 
 from shared.auth_core.dependencies import get_current_user, require_admin
-from shared.tenants_core import dropbox_team, google_admin, microsoft_graph, service
+from shared.tenants_core import dropbox_team, google_admin, microsoft_graph, recommendations, service
 from shared.tenants_core.config import settings
 from shared.tenants_core.db import get_db
 
@@ -49,6 +49,21 @@ def _send_provider_report(db, provider: str, admin_user_id: int, to_email: str) 
 def _require_configured(provider: str, configured: bool) -> None:
     if not configured:
         raise HTTPException(status_code=503, detail=f"{provider} tenant connection is not configured")
+
+
+_CONFIGURED_CHECKS = {
+    "google-workspace": lambda: settings.google_admin_configured,
+    "microsoft365": lambda: settings.microsoft_configured,
+    "dropbox-business": lambda: settings.dropbox_business_configured,
+}
+
+
+def _require_provider_configured(provider: str) -> None:
+    if provider not in _PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown tenant provider")
+    label, _ = _PROVIDERS[provider]
+    if not _CONFIGURED_CHECKS[provider]():
+        raise HTTPException(status_code=503, detail=f"{label} tenant connection is not configured")
 
 
 def _landing_page(target: str) -> HTMLResponse:
@@ -116,7 +131,7 @@ def google_workspace_callback(
         expires_at=creds.expiry,
         scope=" ".join(creds.scopes) if creds.scopes else None,
     )
-    return _landing_page("/tenants/google-workspace/report")
+    return _landing_page("/organization/google-workspace")
 
 
 @router.post("/google-workspace/disconnect")
@@ -180,7 +195,7 @@ def microsoft365_callback(
         scope=" ".join(result.get("scope", [])) if isinstance(result.get("scope"), list) else result.get("scope"),
         tenant_domain=id_claims.get("tid"),
     )
-    return _landing_page("/tenants/microsoft365/report")
+    return _landing_page("/organization/microsoft365")
 
 
 @router.post("/microsoft365/disconnect")
@@ -192,16 +207,6 @@ def disconnect_microsoft365(user=Depends(get_current_user), db=Depends(get_db)):
 @router.get("/microsoft365/report")
 def microsoft365_report(user=Depends(get_current_user), db=Depends(get_db)):
     return microsoft_graph.generate_tenant_report(db, user.id)
-
-
-@router.get("/microsoft365/security-report")
-def microsoft365_security_report(user=Depends(get_current_user), db=Depends(get_db)):
-    """Deliberately separate from /report above — this walks every
-    SharePoint site's drive and is meaningfully slower, so it's its own
-    on-demand endpoint rather than something every /tenants page load
-    pays for. See generate_security_report()'s docstring."""
-    _require_configured("Microsoft 365", settings.microsoft_configured)
-    return microsoft_graph.generate_security_report(db, user.id)
 
 
 # --- Dropbox Business ------------------------------------------------------
@@ -249,7 +254,7 @@ def dropbox_business_callback(request: Request, db=Depends(get_db)):
         refresh_token=result.refresh_token,
         expires_at=result.expires_at,
     )
-    return _landing_page("/tenants/dropbox-business/report")
+    return _landing_page("/organization/dropbox-business")
 
 
 @router.post("/dropbox-business/disconnect")
@@ -261,6 +266,51 @@ def disconnect_dropbox_business(user=Depends(get_current_user), db=Depends(get_d
 @router.get("/dropbox-business/report")
 def dropbox_business_report(user=Depends(get_current_user), db=Depends(get_db)):
     return dropbox_team.generate_tenant_report(db, user.id)
+
+
+# --- Tab reports: same 4 endpoints for every provider ----------------------
+# Each provider module implements generate_security_report/_documents_report/
+# _storage_report/_recommendations with the same signature, so one route per
+# tab works for all three rather than three near-duplicate routes each.
+
+
+@router.get("/{provider}/security-report")
+def provider_security_report(provider: str, user=Depends(get_current_user), db=Depends(get_db)):
+    """Deliberately separate from /report — the underlying per-site/
+    per-member walks are meaningfully slower, so this is its own
+    on-demand endpoint rather than something every overview page load
+    pays for."""
+    _require_provider_configured(provider)
+    _, module = _PROVIDERS[provider]
+    return module.generate_security_report(db, user.id)
+
+
+@router.get("/{provider}/documents-report")
+def provider_documents_report(provider: str, user=Depends(get_current_user), db=Depends(get_db)):
+    _require_provider_configured(provider)
+    _, module = _PROVIDERS[provider]
+    return module.generate_documents_report(db, user.id)
+
+
+@router.get("/{provider}/storage-report")
+def provider_storage_report(provider: str, user=Depends(get_current_user), db=Depends(get_db)):
+    _require_provider_configured(provider)
+    _, module = _PROVIDERS[provider]
+    return module.generate_storage_report(db, user.id)
+
+
+@router.get("/{provider}/recommendations-report")
+def provider_recommendations_report(provider: str, user=Depends(get_current_user), db=Depends(get_db)):
+    _require_provider_configured(provider)
+    _, module = _PROVIDERS[provider]
+
+    tenant_data = module.generate_tenant_report(db, user.id)
+    if not tenant_data.get("connected"):
+        return tenant_data
+
+    security_data = module.generate_security_report(db, user.id)
+    merged = {**tenant_data, **{k: v for k, v in security_data.items() if k not in ("connected", "error")}}
+    return {"connected": True, "error": None, "recommendations": recommendations.generate_recommendations(merged)}
 
 
 # --- Email a tenant report ---------------------------------------------

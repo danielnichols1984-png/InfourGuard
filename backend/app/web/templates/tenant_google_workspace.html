@@ -38,6 +38,14 @@
         </div>
     </div>
 
+    <div class="tab-nav">
+        <a href="/organization/{{ provider }}" class="tab-link{{ ' active' if active_tab == 'overview' else '' }}">Overview</a>
+        <a href="/organization/{{ provider }}/security" class="tab-link{{ ' active' if active_tab == 'security' else '' }}">Security &amp; Risks</a>
+        <a href="/organization/{{ provider }}/documents" class="tab-link{{ ' active' if active_tab == 'documents' else '' }}">Shared Documents</a>
+        <a href="/organization/{{ provider }}/storage" class="tab-link{{ ' active' if active_tab == 'storage' else '' }}">Storage &amp; Growth</a>
+        <a href="/organization/{{ provider }}/recommendations" class="tab-link{{ ' active' if active_tab == 'recommendations' else '' }}">Recommendations</a>
+    </div>
+
     {% if success %}<div class="alert alert-success"><span>✅</span><div>{{ success }}</div></div>{% endif %}
     {% if error %}<div class="alert alert-error"><span>⚠️</span><div><strong>Error:</strong> {{ error }}</div></div>{% endif %}
 

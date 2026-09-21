@@ -7,9 +7,13 @@ import Admin from "./pages/Admin";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
 
+// Vite sets BASE_URL to "/app/" in production builds (see vite.config.js)
+// and "/" during `npm run dev`, so this needs no separate env var.
+const basename = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
