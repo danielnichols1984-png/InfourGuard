@@ -12,12 +12,17 @@
     {% endif %}
     <p><a href="/integrations">Connected accounts</a></p>
     <p><a href="/migrations">Migrations</a></p>
-    <p><a href="/tenants">Organization admin</a></p>
+    {% if has_org_access %}
+        <p><a href="/tenants">Organization admin</a></p>
+    {% endif %}
     {% if business %}
         <p><a href="/business">My Business</a></p>
     {% endif %}
     {% if user.is_admin %}
         <p><a href="/admin/plans">Manage plans</a> &middot; <a href="/admin/users">Individual Users</a> &middot; <a href="/admin/businesses">Business Accounts</a></p>
+    {% endif %}
+    {% if user.is_site_admin or user.is_admin %}
+        <p><a href="/admin/content">Edit homepage (CMS)</a></p>
     {% endif %}
 
     <form action="/auth/logout" method="post">

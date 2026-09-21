@@ -73,21 +73,91 @@
                     <table border="1" cellpadding="6">
                         <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
                         <tbody>
-                            ${members.map((m) => `
+                            ${members.map((m) => {
+                                const otherRole = m.role === "business_admin" ? "member" : "business_admin";
+                                const roleLabel = otherRole === "business_admin" ? "Make admin" : "Make member";
+                                return `
                                 <tr>
                                     <td>${m.email}</td>
                                     <td>${m.role}</td>
                                     <td>
+                                        <button data-role="${m.user_id}" data-new-role="${otherRole}">${roleLabel}</button>
+                                        <button data-view-as="${m.user_id}">View as</button>
+                                        <button data-reset="${m.user_id}" data-email="${m.email}">Reset password</button>
                                         <button data-tenant-report="${m.user_id}" data-email="${m.email}">Email tenant report</button>
+                                        <button data-remove="${m.user_id}">Remove</button>
                                     </td>
                                 </tr>
-                            `).join("")}
+                            `;
+                            }).join("")}
                         </tbody>
                     </table>
                 `;
                 detail.querySelectorAll("[data-tenant-report]").forEach((btn) => {
                     btn.onclick = () => emailTenantReport(btn.dataset.tenantReport, btn.dataset.email);
                 });
+                detail.querySelectorAll("[data-role]").forEach((btn) => {
+                    btn.onclick = () => setMemberRole(businessId, btn.dataset.role, btn.dataset.newRole, name);
+                });
+                detail.querySelectorAll("[data-view-as]").forEach((btn) => {
+                    btn.onclick = () => viewAsMember(businessId, btn.dataset.viewAs);
+                });
+                detail.querySelectorAll("[data-reset]").forEach((btn) => {
+                    btn.onclick = () => resetMemberPassword(businessId, btn.dataset.reset, btn.dataset.email);
+                });
+                detail.querySelectorAll("[data-remove]").forEach((btn) => {
+                    btn.onclick = () => removeBusinessMember(businessId, btn.dataset.remove, name);
+                });
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function setMemberRole(businessId, userId, newRole, name) {
+            showError("");
+            try {
+                await api(`/businesses/admin/businesses/${businessId}/members/${userId}/role`, {
+                    method: "PUT",
+                    body: JSON.stringify({ role: newRole }),
+                });
+                await viewMembers(businessId, name);
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function viewAsMember(businessId, userId) {
+            showError("");
+            try {
+                await api(`/businesses/admin/businesses/${businessId}/members/${userId}/impersonate`, { method: "POST" });
+                window.location.href = "/dashboard";
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function resetMemberPassword(businessId, userId, email) {
+            const newPassword = prompt(`New password for ${email}:`);
+            if (!newPassword) return;
+            showError("");
+            try {
+                await api(`/businesses/admin/businesses/${businessId}/members/${userId}/password`, {
+                    method: "PUT",
+                    body: JSON.stringify({ new_password: newPassword }),
+                });
+                alert("Password updated.");
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function removeBusinessMember(businessId, userId, name) {
+            if (!confirm("Remove this member from the business?")) return;
+            showError("");
+            try {
+                await api(`/businesses/admin/businesses/${businessId}/members/${userId}`, { method: "DELETE" });
+                await viewMembers(businessId, name);
+                await loadBusinesses();
             } catch (e) {
                 showError(e.message);
             }

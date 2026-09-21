@@ -111,7 +111,8 @@ def admin_create_plan(
         raise HTTPException(status_code=400, detail="A plan with this name already exists")
 
     return create_plan(
-        db, body.name, body.display_name, body.price_display, body.features, body.is_default
+        db, body.name, body.display_name, body.price_display, body.features, body.is_default,
+        body.is_business_plan,
     )
 
 

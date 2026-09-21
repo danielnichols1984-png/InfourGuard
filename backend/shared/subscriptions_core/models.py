@@ -14,6 +14,10 @@ class Plan(Base):
     price_display = Column(String, nullable=False)  # "$0/mo" — no real billing wired up yet
     features = Column(JSON, nullable=False, default=list)
     is_default = Column(Boolean, nullable=False, default=False)
+    # When true, a user confirmed onto this plan gets an organization
+    # auto-provisioned for them (they become its business admin) — see
+    # confirm_payment(). Free/individual plans leave this false.
+    is_business_plan = Column(Boolean, nullable=False, default=False)
 
 
 class UserSubscription(Base):
@@ -53,6 +57,10 @@ class Payment(Base):
     billing_country = Column(String, nullable=False)
     company_name = Column(String, nullable=True)
     notes = Column(String, nullable=True)
+    # Optional org name for a business-plan checkout — captured here since
+    # the plan doesn't actually take effect (and the organization doesn't
+    # get created) until an admin confirms the payment.
+    business_name = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     confirmed_at = Column(DateTime(timezone=True), nullable=True)

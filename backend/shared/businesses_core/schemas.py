@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr, field_validator
 
+_VALID_ROLES = {"business_admin", "member"}
+
 from shared.auth_core.config import settings as auth_settings
 
 
@@ -55,3 +57,14 @@ class SetMemberPasswordRequest(BaseModel):
 
 class EmailReportRequest(BaseModel):
     email: EmailStr
+
+
+class SetMemberRoleRequest(BaseModel):
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def role_is_valid(cls, v: str) -> str:
+        if v not in _VALID_ROLES:
+            raise ValueError(f"role must be one of {sorted(_VALID_ROLES)}")
+        return v

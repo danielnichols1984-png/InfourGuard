@@ -58,8 +58,10 @@
             business.members.forEach((m) => {
                 const isSelf = m.user_id === me.id;
                 const tr = document.createElement("tr");
+                const otherRole = m.role === "business_admin" ? "member" : "business_admin";
                 const actions = isBusinessAdmin && !isSelf
                     ? `
+                        <button data-role="${m.user_id}" data-new-role="${otherRole}">Make ${otherRole === "business_admin" ? "admin" : "member"}</button>
                         <button data-view-as="${m.user_id}">View as</button>
                         <button data-reset="${m.user_id}">Reset password</button>
                         <button data-email-google="${m.user_id}">Email Google report</button>
@@ -67,8 +69,14 @@
                         <button data-email-microsoft="${m.user_id}">Email OneDrive report</button>
                         <button data-remove="${m.user_id}">Remove</button>
                     `
+                    : isBusinessAdmin && isSelf && m.role === "business_admin"
+                    ? `<button data-role="${m.user_id}" data-new-role="member">Step down as admin</button>`
                     : "";
                 tr.innerHTML = `<td>${m.email}</td><td>${m.role}</td><td>${actions}</td>`;
+                const roleBtn = tr.querySelector("[data-role]");
+                if (roleBtn) {
+                    roleBtn.onclick = () => setRole(m.user_id, roleBtn.dataset.newRole);
+                }
                 if (isBusinessAdmin && !isSelf) {
                     tr.querySelector("[data-view-as]").onclick = () => viewAs(m.user_id);
                     tr.querySelector("[data-reset]").onclick = () => resetPassword(m.user_id, m.email);
@@ -116,6 +124,19 @@
                     body: JSON.stringify({ email }),
                 });
                 alert(result.sent ? "Report sent." : "Couldn't send — check email settings.");
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function setRole(userId, newRole) {
+            showError("");
+            try {
+                await api(`/businesses/my-business/members/${userId}/role`, {
+                    method: "PUT",
+                    body: JSON.stringify({ role: newRole }),
+                });
+                await load();
             } catch (e) {
                 showError(e.message);
             }

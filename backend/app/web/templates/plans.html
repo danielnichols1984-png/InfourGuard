@@ -24,6 +24,9 @@
                 <p><input type="email" name="billing_email" placeholder="Billing email" required></p>
                 <p><input name="billing_phone" placeholder="Phone (optional)"></p>
                 <p><input name="company_name" placeholder="Company name (optional)"></p>
+                <p id="business-name-field" style="display:none;">
+                    <input name="business_name" placeholder="Organization name (you'll be its admin)">
+                </p>
                 <p><input name="billing_address_line1" placeholder="Address line 1" required></p>
                 <p><input name="billing_address_line2" placeholder="Address line 2 (optional)"></p>
                 <p><input name="billing_city" placeholder="City" required></p>
@@ -61,7 +64,7 @@
                 div.style.padding = "12px";
                 div.style.marginBottom = "10px";
                 div.innerHTML = `
-                    <h3>${plan.display_name} ${plan.is_default ? "(default)" : ""}</h3>
+                    <h3>${plan.display_name} ${plan.is_default ? "(default)" : ""} ${plan.is_business_plan ? "(Business — you'll admin an organization)" : ""}</h3>
                     <p>${plan.price_display}</p>
                     <ul>${plan.features.map((f) => `<li>${f}</li>`).join("")}</ul>
                 `;
@@ -89,6 +92,7 @@
             }
             checkoutPlanId = plan.id;
             document.getElementById("checkout-plan-name").textContent = plan.display_name;
+            document.getElementById("business-name-field").style.display = plan.is_business_plan ? "block" : "none";
             document.getElementById("checkout-modal").style.display = "block";
         }
 
@@ -117,7 +121,7 @@
             for (const key of [
                 "billing_name", "billing_email", "billing_phone", "company_name",
                 "billing_address_line1", "billing_address_line2", "billing_city",
-                "billing_state", "billing_zip", "billing_country", "notes",
+                "billing_state", "billing_zip", "billing_country", "notes", "business_name",
             ]) {
                 const value = form.get(key);
                 if (value) body[key] = value;

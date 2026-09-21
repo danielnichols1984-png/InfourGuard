@@ -49,6 +49,38 @@ def remove_member(db: Session, membership: BusinessMembership) -> None:
     db.commit()
 
 
+def set_member_role(db: Session, membership: BusinessMembership, new_role: str) -> str | None:
+    """Returns None on success, or an error message describing why not.
+    Refuses to demote the last remaining business_admin in a business —
+    every business must keep at least one admin."""
+    if membership.role == "business_admin" and new_role == "member":
+        other_admins = (
+            db.query(BusinessMembership)
+            .filter(
+                BusinessMembership.business_id == membership.business_id,
+                BusinessMembership.role == "business_admin",
+                BusinessMembership.id != membership.id,
+            )
+            .count()
+        )
+        if other_admins == 0:
+            return "This is the only admin left in this business — promote someone else first"
+
+    membership.role = new_role
+    db.commit()
+    return None
+
+
+def user_has_org_access(db: Session, user) -> bool:
+    """Plain (non-dependency) equivalent of require_org_access, for the
+    one call site that isn't cookie-based: the tenant OAuth callback,
+    which resolves identity from the OAuth `state` param instead."""
+    if user.is_admin:
+        return True
+    membership = get_membership(db, user.id)
+    return bool(membership and membership.role == "business_admin")
+
+
 def list_businesses(db: Session) -> list[Business]:
     return db.query(Business).order_by(Business.id).all()
 

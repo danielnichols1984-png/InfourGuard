@@ -25,6 +25,7 @@ from shared.businesses_core.schemas import (
     EmailReportRequest,
     MemberResponse,
     SetMemberPasswordRequest,
+    SetMemberRoleRequest,
 )
 from shared.businesses_core.service import (
     add_member,
@@ -34,6 +35,7 @@ from shared.businesses_core.service import (
     list_businesses,
     list_members,
     remove_member,
+    set_member_role,
 )
 from shared.integrations_core.db import get_db as get_integrations_db
 from shared.integrations_core import dropbox_integration, google, microsoft
@@ -196,6 +198,21 @@ def set_business_member_password(
     return {"message": "Password updated"}
 
 
+@router.put("/my-business/members/{user_id}/role")
+def set_business_member_role(
+    user_id: int,
+    body: SetMemberRoleRequest,
+    admin_dep=Depends(require_business_admin),
+    db: Session = Depends(get_db),
+):
+    _, membership = admin_dep
+    target = _get_member_in_own_business(db, membership, user_id)
+    error = set_member_role(db, target, body.role)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return {"message": f"Role updated to {body.role}"}
+
+
 @router.post("/my-business/members/{user_id}/impersonate")
 def impersonate_business_member(
     user_id: int,
@@ -264,3 +281,122 @@ def email_member_report(
         raise HTTPException(status_code=404, detail="Unknown report provider")
 
     return {"sent": sent}
+
+
+# --- Platform admin: full override into any business's members -------------
+# Mirrors the /my-business/members/... routes above exactly, but keyed by an
+# explicit {business_id} path param instead of the caller's own membership —
+# "the global admin should be able to make any change necessary," not just
+# view. Reuses the same service functions; only authorization/scope differs.
+
+
+def _get_member_in_business(db: Session, business_id: int, user_id: int) -> BusinessMembership:
+    target = (
+        db.query(BusinessMembership)
+        .filter(BusinessMembership.business_id == business_id, BusinessMembership.user_id == user_id)
+        .first()
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="That user isn't part of this business")
+    return target
+
+
+@router.post("/admin/businesses/{business_id}/members", response_model=MemberResponse)
+def admin_create_business_member(
+    business_id: int,
+    body: CreateMemberRequest,
+    admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+    auth_db: Session = Depends(get_auth_db),
+):
+    if not db.query(Business).filter(Business.id == business_id).first():
+        raise HTTPException(status_code=404, detail="Business not found")
+    existing = auth_db.query(AuthUser).filter(AuthUser.email == body.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    new_user = create_user(auth_db, body.email, body.password)
+    add_member(db, business_id=business_id, user_id=new_user.id, role="member")
+    return MemberResponse(user_id=new_user.id, email=new_user.email, role="member")
+
+
+@router.delete("/admin/businesses/{business_id}/members/{user_id}")
+def admin_remove_business_member(
+    business_id: int, user_id: int, admin: AuthUser = Depends(require_admin), db: Session = Depends(get_db)
+):
+    target = _get_member_in_business(db, business_id, user_id)
+    remove_member(db, target)
+    return {"message": "Member removed from business"}
+
+
+@router.put("/admin/businesses/{business_id}/members/{user_id}/password")
+def admin_set_business_member_password(
+    business_id: int,
+    user_id: int,
+    body: SetMemberPasswordRequest,
+    admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+    auth_db: Session = Depends(get_auth_db),
+):
+    _get_member_in_business(db, business_id, user_id)
+    target_user = auth_db.query(AuthUser).filter(AuthUser.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    set_user_password(auth_db, target_user, body.new_password)
+    return {"message": "Password updated"}
+
+
+@router.put("/admin/businesses/{business_id}/members/{user_id}/role")
+def admin_set_business_member_role(
+    business_id: int,
+    user_id: int,
+    body: SetMemberRoleRequest,
+    admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    target = _get_member_in_business(db, business_id, user_id)
+    error = set_member_role(db, target, body.role)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return {"message": f"Role updated to {body.role}"}
+
+
+@router.post("/admin/businesses/{business_id}/members/{user_id}/impersonate")
+def admin_impersonate_business_member(
+    business_id: int,
+    user_id: int,
+    admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+    auth_db: Session = Depends(get_auth_db),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Can't view as yourself")
+
+    _get_member_in_business(db, business_id, user_id)
+    target_user = auth_db.query(AuthUser).filter(AuthUser.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target_user.is_admin:
+        raise HTTPException(status_code=400, detail="Can't impersonate another admin")
+
+    start_impersonation_log(auth_db, admin_id=admin.id, target_id=target_user.id)
+
+    token = create_access_token({"sub": str(target_user.id), "impersonator_id": str(admin.id)})
+    response = JSONResponse(
+        UserResponse(
+            id=target_user.id,
+            email=target_user.email,
+            is_admin=target_user.is_admin,
+            impersonating=True,
+            impersonator_email=admin.email,
+        ).model_dump()
+    )
+    response.set_cookie(
+        key=auth_settings.COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=auth_settings.COOKIE_SECURE,
+    )
+    return response

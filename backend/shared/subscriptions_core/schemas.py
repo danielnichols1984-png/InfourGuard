@@ -12,6 +12,7 @@ class PlanResponse(BaseModel):
     price_display: str
     features: list[str]
     is_default: bool
+    is_business_plan: bool
 
 
 class SubscriptionResponse(BaseModel):
@@ -28,6 +29,7 @@ class PlanCreate(BaseModel):
     price_display: str
     features: list[str] = []
     is_default: bool = False
+    is_business_plan: bool = False
 
 
 class PlanUpdate(BaseModel):
@@ -35,6 +37,7 @@ class PlanUpdate(BaseModel):
     price_display: str | None = None
     features: list[str] | None = None
     is_default: bool | None = None
+    is_business_plan: bool | None = None
 
 
 class AdminUserPlanResponse(BaseModel):
@@ -61,6 +64,7 @@ class CheckoutRequest(BaseModel):
     billing_country: str
     company_name: str | None = None
     notes: str | None = None
+    business_name: str | None = None
 
 
 class PaymentResponse(BaseModel):
@@ -82,6 +86,7 @@ class PaymentResponse(BaseModel):
     billing_country: str
     company_name: str | None
     notes: str | None
+    business_name: str | None
     created_at: datetime | None
     confirmed_at: datetime | None
 

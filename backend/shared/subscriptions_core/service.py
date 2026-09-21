@@ -4,6 +4,14 @@ from sqlalchemy.orm import Session
 
 from shared.subscriptions_core.models import Payment, Plan, UserSubscription
 
+# Deliberate cross-module import — confirming a business-tier plan needs to
+# provision an organization, same precedent as tenants_core already
+# importing integrations_core for shared OAuth app credentials. This module
+# still works standalone for anyone not using businesses_core; the import
+# only matters at the point a business-tier plan is actually confirmed.
+from shared.businesses_core.db import SessionLocal as BusinessesSessionLocal
+from shared.businesses_core.service import create_business, get_membership as get_business_membership
+
 # Starter plans, inserted once into an empty `plans` table by seed_default_plans.
 # Edit this list to match your own product — it only ever runs on a fresh DB.
 SEED_PLANS = [
@@ -27,6 +35,7 @@ SEED_PLANS = [
         "price_display": "$49/mo",
         "features": ["Everything in Pro", "5 team seats", "Shared workspaces"],
         "is_default": False,
+        "is_business_plan": True,
     },
 ]
 
@@ -82,6 +91,7 @@ def create_plan(
     price_display: str,
     features: list[str],
     is_default: bool,
+    is_business_plan: bool = False,
 ) -> Plan:
     plan = Plan(
         name=name,
@@ -89,6 +99,7 @@ def create_plan(
         price_display=price_display,
         features=features,
         is_default=is_default,
+        is_business_plan=is_business_plan,
     )
     db.add(plan)
     db.commit()
@@ -156,8 +167,29 @@ def confirm_payment(db: Session, payment: Payment, admin_id: int) -> Payment:
     payment.confirmed_by_admin_id = admin_id
     db.commit()
     set_user_plan(db, payment.user_id, payment.plan_id)
+
+    plan = db.query(Plan).filter(Plan.id == payment.plan_id).first()
+    if plan and plan.is_business_plan:
+        _provision_business_if_needed(payment)
+
     db.refresh(payment)
     return payment
+
+
+def _provision_business_if_needed(payment: Payment) -> None:
+    """A business-tier plan makes its buyer the admin of a new
+    organization — but only if they aren't already part of one (e.g. a
+    second business-plan purchase by an existing business admin shouldn't
+    spawn a duplicate org). Own short-lived session since this module has
+    no other reason to hold a businesses_core connection open."""
+    businesses_db = BusinessesSessionLocal()
+    try:
+        if get_business_membership(businesses_db, payment.user_id):
+            return
+        name = payment.business_name or f"{payment.billing_email}'s Organization"
+        create_business(businesses_db, name=name, admin_user_id=payment.user_id)
+    finally:
+        businesses_db.close()
 
 
 def reject_payment(db: Session, payment: Payment, admin_id: int) -> Payment:

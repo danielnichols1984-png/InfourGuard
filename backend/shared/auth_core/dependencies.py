@@ -55,7 +55,10 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
 
 
 def require_site_admin(user: User = Depends(get_current_user)) -> User:
-    if not user.is_site_admin:
+    # is_admin is a strict superset — a global admin can do anything a
+    # site admin can, but is_site_admin alone (no is_admin) grants ONLY
+    # this, not the rest of platform admin.
+    if not (user.is_site_admin or user.is_admin):
         raise HTTPException(status_code=403, detail="Site admin access required")
     return user
 

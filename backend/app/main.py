@@ -13,7 +13,7 @@ from shared.auth_core.dependencies import get_optional_user
 from shared.auth_core.routes import router as auth_router
 from shared.businesses_core.db import get_db as get_businesses_db, init_db as init_businesses_db
 from shared.businesses_core.routes import router as businesses_router
-from shared.businesses_core.service import get_membership as get_business_membership
+from shared.businesses_core.service import get_membership as get_business_membership, user_has_org_access
 from shared.content_core.db import get_db as get_content_db, init_db as init_content_db
 from shared.content_core.routes import router as content_router
 from shared.content_core.service import get_all as get_homepage_content, seed_defaults as seed_default_content
@@ -187,7 +187,7 @@ def home_page(request: Request, user=Depends(get_optional_user), db: Session = D
 def admin_content_page(request: Request, user=Depends(get_optional_user), db: Session = Depends(get_content_db)):
     if not user:
         return RedirectResponse("/login")
-    if not user.is_site_admin:
+    if not (user.is_site_admin or user.is_admin):
         return RedirectResponse("/dashboard")
     content = get_homepage_content(db)
     return templates.TemplateResponse(request, "admin_content.html", {"user": user, "content": content})
@@ -218,8 +218,11 @@ def dashboard_page(
         return RedirectResponse("/login")
     plan = get_user_plan(db, user.id)
     business_membership = get_business_membership(businesses_db, user.id)
+    has_org_access = user_has_org_access(businesses_db, user)
     return templates.TemplateResponse(
-        request, "dashboard.html", {"user": user, "plan": plan, "business": business_membership}
+        request,
+        "dashboard.html",
+        {"user": user, "plan": plan, "business": business_membership, "has_org_access": has_org_access},
     )
 
 
@@ -284,19 +287,37 @@ def migrations_page(request: Request, user=Depends(get_optional_user)):
     return templates.TemplateResponse(request, "migrations.html", {"user": user})
 
 
+def _org_access_redirect(user, businesses_db: Session) -> RedirectResponse | None:
+    """Organization/tenant-admin pages are for a business admin of some
+    org, or a global admin overriding in — not a free-plan individual
+    user. Returns a redirect if access should be refused, else None."""
+    if not user_has_org_access(businesses_db, user):
+        return RedirectResponse("/dashboard")
+    return None
+
+
 @app.get("/tenants")
-def tenants_page(request: Request, user=Depends(get_optional_user)):
+def tenants_page(
+    request: Request, user=Depends(get_optional_user), businesses_db: Session = Depends(get_businesses_db)
+):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     return templates.TemplateResponse(request, "tenants.html", {"user": user})
 
 
 @app.get("/organization/google-workspace", response_class=HTMLResponse)
 def tenant_google_workspace_page(
-    request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    request: Request,
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     data = google_admin.generate_tenant_report(db, user.id)
     return templates.TemplateResponse(
         request,
@@ -311,9 +332,12 @@ def tenant_google_workspace_email_report(
     email: str = Form(...),
     user=Depends(get_optional_user),
     db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     data = google_admin.generate_tenant_report(db, user.id)
     text = tenants_service.render_tenant_report_text("Google Workspace", data)
     sent = tenants_service.send_tenant_report_email(email, "Google Workspace", text)
@@ -334,20 +358,29 @@ def tenant_google_workspace_email_report(
 
 @app.post("/organization/google-workspace/disconnect")
 def tenant_google_workspace_disconnect(
-    user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     tenants_service.delete_tokens(db, user.id, "google_workspace")
     return RedirectResponse("/organization/google-workspace", status_code=302)
 
 
 @app.get("/organization/microsoft365", response_class=HTMLResponse)
 def tenant_microsoft365_page(
-    request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    request: Request,
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     data = microsoft_graph.generate_tenant_report(db, user.id)
     return templates.TemplateResponse(
         request,
@@ -362,9 +395,12 @@ def tenant_microsoft365_email_report(
     email: str = Form(...),
     user=Depends(get_optional_user),
     db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     data = microsoft_graph.generate_tenant_report(db, user.id)
     text = tenants_service.render_tenant_report_text("Microsoft 365", data)
     sent = tenants_service.send_tenant_report_email(email, "Microsoft 365", text)
@@ -385,20 +421,29 @@ def tenant_microsoft365_email_report(
 
 @app.post("/organization/microsoft365/disconnect")
 def tenant_microsoft365_disconnect(
-    user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     tenants_service.delete_tokens(db, user.id, "microsoft365")
     return RedirectResponse("/organization/microsoft365", status_code=302)
 
 
 @app.get("/organization/dropbox-business", response_class=HTMLResponse)
 def tenant_dropbox_business_page(
-    request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    request: Request,
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     data = dropbox_team.generate_tenant_report(db, user.id)
     return templates.TemplateResponse(
         request,
@@ -413,9 +458,12 @@ def tenant_dropbox_business_email_report(
     email: str = Form(...),
     user=Depends(get_optional_user),
     db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     data = dropbox_team.generate_tenant_report(db, user.id)
     text = tenants_service.render_tenant_report_text("Dropbox Business", data)
     sent = tenants_service.send_tenant_report_email(email, "Dropbox Business", text)
@@ -436,10 +484,14 @@ def tenant_dropbox_business_email_report(
 
 @app.post("/organization/dropbox-business/disconnect")
 def tenant_dropbox_business_disconnect(
-    user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     tenants_service.delete_tokens(db, user.id, "dropbox_business")
     return RedirectResponse("/organization/dropbox-business", status_code=302)
 
@@ -464,10 +516,16 @@ def _tenant_module_or_404(provider: str):
 
 @app.get("/organization/{provider}/security", response_class=HTMLResponse)
 def tenant_security_page(
-    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    provider: str,
+    request: Request,
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     module, label = _tenant_module_or_404(provider)
     data = module.generate_security_report(db, user.id)
     return templates.TemplateResponse(
@@ -477,10 +535,16 @@ def tenant_security_page(
 
 @app.get("/organization/{provider}/documents", response_class=HTMLResponse)
 def tenant_documents_page(
-    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    provider: str,
+    request: Request,
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     module, label = _tenant_module_or_404(provider)
     data = module.generate_documents_report(db, user.id)
     return templates.TemplateResponse(
@@ -490,10 +554,16 @@ def tenant_documents_page(
 
 @app.get("/organization/{provider}/storage", response_class=HTMLResponse)
 def tenant_storage_page(
-    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    provider: str,
+    request: Request,
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     module, label = _tenant_module_or_404(provider)
     data = module.generate_storage_report(db, user.id)
     return templates.TemplateResponse(
@@ -503,10 +573,16 @@ def tenant_storage_page(
 
 @app.get("/organization/{provider}/recommendations", response_class=HTMLResponse)
 def tenant_recommendations_page(
-    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_tenants_db)
+    provider: str,
+    request: Request,
+    user=Depends(get_optional_user),
+    db: Session = Depends(get_tenants_db),
+    businesses_db: Session = Depends(get_businesses_db),
 ):
     if not user:
         return RedirectResponse("/login")
+    if (redirect := _org_access_redirect(user, businesses_db)):
+        return redirect
     module, label = _tenant_module_or_404(provider)
 
     tenant_data = module.generate_tenant_report(db, user.id)
