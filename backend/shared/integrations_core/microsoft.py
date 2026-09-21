@@ -195,25 +195,31 @@ def _list_all_items(access_token: str) -> list[dict]:
     return entries
 
 
-def generate_report(db: Session, user_id: int) -> dict:
+_NOT_CONNECTED = {
+    "connected": False,
+    "error": "Microsoft OneDrive is not connected.",
+    "user_email": None,
+    "user_name": None,
+    "used_bytes": None,
+    "total_bytes": None,
+    "total_files": 0,
+    "total_folders": 0,
+    "anyone_with_link_count": 0,
+    "shared_count": 0,
+    "private_count": 0,
+    "categories": {},
+    "files": [],
+}
+
+
+def _gather(db: Session, user_id: int) -> dict:
+    """Does the actual Graph API work once; generate_report() (Overview)
+    and the Security/Documents/Storage tab report functions below all
+    build their (differently-shaped) output from this same call instead
+    of each re-fetching from Graph."""
     access_token = get_access_token(db, user_id)
     if not access_token:
-        return {
-            "connected": False,
-            "error": "Microsoft OneDrive is not connected.",
-            "user_email": None,
-            "user_name": None,
-            "storage_used": "-",
-            "total_quota": "-",
-            "storage_percent": 0,
-            "total_files": 0,
-            "total_folders": 0,
-            "anyone_with_link_count": 0,
-            "shared_count": 0,
-            "private_count": 0,
-            "categories": {},
-            "files": [],
-        }
+        return dict(_NOT_CONNECTED)
 
     try:
         me = _graph_get(access_token, "/me")
@@ -236,13 +242,11 @@ def generate_report(db: Session, user_id: int) -> dict:
 
         return {
             "connected": True,
+            "error": None,
             "user_email": me.get("mail") or me.get("userPrincipalName"),
             "user_name": me.get("displayName"),
-            "storage_used": format_file_size(used_bytes),
-            "total_quota": format_file_size(total_bytes) if total_bytes else "Unknown",
-            "storage_percent": (
-                min(round((used_bytes / total_bytes) * 100, 1), 100) if used_bytes and total_bytes else 0
-            ),
+            "used_bytes": used_bytes,
+            "total_bytes": total_bytes,
             "total_files": total_files,
             "total_folders": total_folders,
             "anyone_with_link_count": anyone_with_link_count,
@@ -250,25 +254,84 @@ def generate_report(db: Session, user_id: int) -> dict:
             "private_count": private_count,
             "categories": categories,
             "files": files,
-            "error": None,
+            "_access_token": access_token,
         }
     except Exception as e:
+        data = dict(_NOT_CONNECTED)
+        data["connected"] = True
+        data["error"] = f"Microsoft OneDrive error: {e}"
+        return data
+
+
+def generate_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    data.pop("_access_token", None)
+    used_bytes, total_bytes = data.pop("used_bytes", None), data.pop("total_bytes", None)
+    data["storage_used"] = format_file_size(used_bytes)
+    data["total_quota"] = "-" if used_bytes is None else format_file_size(total_bytes) if total_bytes else "Unknown"
+    data["storage_percent"] = min(round((used_bytes / total_bytes) * 100, 1), 100) if used_bytes and total_bytes else 0
+    return data
+
+
+def generate_documents_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    return {
+        "connected": data["connected"],
+        "error": data["error"],
+        "files": data["files"],
+        "categories": data["categories"],
+        "total_files": data["total_files"],
+        "total_folders": data["total_folders"],
+    }
+
+
+def _get_own_mfa_methods(access_token: str) -> dict:
+    """UserAuthenticationMethod.Read is a self-only delegated scope, only
+    supported for work/school Microsoft accounts (confirmed against
+    Microsoft's own docs) — a personal Microsoft account, or a token that
+    hasn't been reconnected since this scope was added, will 403/404 here.
+    That's an expected, not-available outcome, not an error to surface."""
+    try:
+        result = _graph_get(access_token, "/me/authentication/methods")
+        methods = result.get("value", [])
+        return {"available": True, "methods_count": len(methods)}
+    except Exception:
         return {
-            "connected": True,
-            "error": f"Microsoft OneDrive error: {e}",
-            "user_email": None,
-            "user_name": None,
-            "storage_used": "-",
-            "total_quota": "-",
-            "storage_percent": 0,
-            "total_files": 0,
-            "total_folders": 0,
-            "anyone_with_link_count": 0,
-            "shared_count": 0,
-            "private_count": 0,
-            "categories": {},
-            "files": [],
+            "available": False,
+            "note": "MFA status isn't available for this account — either it's a personal Microsoft account (not work/school), or the connection needs to be reconnected to grant the new permission.",
         }
+
+
+def generate_security_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    access_token = data.pop("_access_token", None)
+    anyone_with_link_files = [f for f in data["files"] if f.get("anyone_with_link")]
+    mfa = _get_own_mfa_methods(access_token) if access_token else {"available": False, "note": "Not connected."}
+    return {
+        "connected": data["connected"],
+        "error": data["error"],
+        "anyone_with_link_count": data["anyone_with_link_count"],
+        "shared_count": data["shared_count"],
+        "private_count": data["private_count"],
+        "anyone_with_link_files": anyone_with_link_files,
+        "mfa": mfa,
+    }
+
+
+def generate_storage_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    data.pop("_access_token", None)
+    used_bytes, total_bytes = data.pop("used_bytes", None), data.pop("total_bytes", None)
+    if data["connected"] and not data["error"] and used_bytes is not None:
+        token_service.record_storage_snapshot(db, user_id, "microsoft", used_bytes)
+    return {
+        "connected": data["connected"],
+        "error": data["error"],
+        "storage_used": format_file_size(used_bytes),
+        "storage_total": "-" if used_bytes is None else format_file_size(total_bytes) if total_bytes else "Unknown",
+        "storage_percent": min(round((used_bytes / total_bytes) * 100, 1), 100) if used_bytes and total_bytes else 0,
+        "storage_growth": token_service.compute_storage_growth(db, user_id, "microsoft"),
+    }
 
 
 def render_report_text(data: dict) -> str:

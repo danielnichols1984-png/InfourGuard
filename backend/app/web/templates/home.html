@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ content.get('brand_name', 'Cloudscope') }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+</head>
+<body>
+    <nav class="site-nav">
+        <a href="/" class="brand"><span class="brand-mark"></span>{{ content.get('brand_name', 'Cloudscope') }}</a>
+        <div class="site-nav-links">
+            {% if user %}
+                <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
+            {% else %}
+                <a href="/login" class="btn btn-secondary">{{ content.get('hero_cta_secondary', 'Log in') }}</a>
+                <a href="/signup" class="btn btn-primary">{{ content.get('hero_cta_primary', 'Get started free') }}</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <section class="hero">
+        <h1>{{ content.get('hero_headline', 'One dashboard for every cloud drive you use.') }}</h1>
+        <p class="subhead">{{ content.get('hero_subheadline', '') }}</p>
+        <div class="hero-ctas">
+            <a href="/signup" class="btn btn-primary btn-lg">{{ content.get('hero_cta_primary', 'Get started free') }}</a>
+            <a href="/login" class="btn btn-secondary btn-lg">{{ content.get('hero_cta_secondary', 'Log in') }}</a>
+        </div>
+    </section>
+
+    <section class="section-tight">
+        <div class="section-label">{{ content.get('connects_label', 'Works with the storage you already use') }}</div>
+    </section>
+
+    <section class="section">
+        <div class="section-heading">Everything you need to stay on top of your cloud storage</div>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="icon">&#128202;</div>
+                <h3>{{ content.get('feature_1_title', 'Storage analytics') }}</h3>
+                <p>{{ content.get('feature_1_body', '') }}</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#128274;</div>
+                <h3>{{ content.get('feature_2_title', 'Sharing & security insights') }}</h3>
+                <p>{{ content.get('feature_2_body', '') }}</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#127970;</div>
+                <h3>{{ content.get('feature_3_title', 'Organization-wide reporting') }}</h3>
+                <p>{{ content.get('feature_3_body', '') }}</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#8635;</div>
+                <h3>{{ content.get('feature_4_title', 'Cross-cloud migration') }}</h3>
+                <p>{{ content.get('feature_4_body', '') }}</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="section" style="background: white; border-top: 1px solid var(--ink-200); border-bottom: 1px solid var(--ink-200);">
+        <div class="section-heading">{{ content.get('pricing_teaser_headline', 'Simple plans that grow with you') }}</div>
+        <div class="section-body">{{ content.get('pricing_teaser_body', '') }}</div>
+        <div style="text-align: center;">
+            <a href="/plans" class="btn btn-accent btn-lg">{{ content.get('pricing_teaser_cta', 'See plans') }}</a>
+        </div>
+    </section>
+
+    <footer class="site-footer">
+        {{ content.get('footer_tagline', '') }}
+    </footer>
+</body>
+</html>

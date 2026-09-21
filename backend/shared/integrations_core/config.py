@@ -40,7 +40,14 @@ class IntegrationsSettings(BaseSettings):
     # need a refresh token — MSAL's ConfidentialClientApplication adds
     # those three itself and raises ValueError("reserved scope") if
     # they're also passed explicitly. Only list the actual resource scopes.
-    MICROSOFT_SCOPES: str = "User.Read,Files.ReadWrite"
+    # UserAuthenticationMethod.Read is a self-only delegated scope (read
+    # YOUR OWN registered auth methods, not anyone else's) — it's what
+    # powers the personal-account Security tab's real MFA-method count.
+    # Per Microsoft's own docs it's only supported for work/school
+    # accounts, not personal Microsoft accounts (MICROSOFT_TENANT=common
+    # accepts both) — the security-report code falls back gracefully for
+    # personal accounts rather than treating that as an error.
+    MICROSOFT_SCOPES: str = "User.Read,Files.ReadWrite,UserAuthenticationMethod.Read"
 
     EMAIL_ADDRESS: str | None = None
     EMAIL_PASSWORD: str | None = None

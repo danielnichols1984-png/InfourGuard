@@ -413,26 +413,32 @@ def _list_drive_files(service) -> list[dict]:
     return files
 
 
-def generate_report(db: Session, user_id: int) -> dict:
+_NOT_CONNECTED = {
+    "connected": False,
+    "error": "Google Drive is not connected.",
+    "user_email": None,
+    "user_name": None,
+    "usage_bytes": None,
+    "limit_bytes": None,
+    "total_files": 0,
+    "total_folders": 0,
+    "anyone_with_link_count": 0,
+    "shared_count": 0,
+    "private_count": 0,
+    "categories": {},
+    "files": [],
+    "has_drive_scope": True,
+}
+
+
+def _gather(db: Session, user_id: int) -> dict:
+    """Does the actual Drive API work once; generate_report() (Overview)
+    and the Security/Documents/Storage tab report functions below all
+    build their (differently-shaped) output from this same call instead
+    of each re-fetching from Google."""
     creds = get_credentials(db, user_id)
     if not creds:
-        return {
-            "connected": False,
-            "error": "Google Drive is not connected.",
-            "user_email": None,
-            "user_name": None,
-            "drive_usage": "-",
-            "total_quota": "-",
-            "storage_percent": 0,
-            "total_files": 0,
-            "total_folders": 0,
-            "anyone_with_link_count": 0,
-            "shared_count": 0,
-            "private_count": 0,
-            "categories": {},
-            "files": [],
-            "has_drive_scope": True,
-        }
+        return dict(_NOT_CONNECTED)
 
     try:
         service = build_drive_service(creds)
@@ -457,13 +463,11 @@ def generate_report(db: Session, user_id: int) -> dict:
 
         return {
             "connected": True,
+            "error": None,
             "user_email": user_info.get("emailAddress"),
             "user_name": user_info.get("displayName"),
-            "drive_usage": format_file_size(usage_bytes),
-            "total_quota": format_file_size(limit_bytes) if limit_bytes else "Unlimited",
-            "storage_percent": (
-                min(round((usage_bytes / limit_bytes) * 100, 1), 100) if limit_bytes else 0
-            ),
+            "usage_bytes": usage_bytes,
+            "limit_bytes": limit_bytes,
             "total_files": total_files,
             "total_folders": total_folders,
             "anyone_with_link_count": anyone_with_link_count,
@@ -472,26 +476,69 @@ def generate_report(db: Session, user_id: int) -> dict:
             "categories": categories,
             "files": files,
             "has_drive_scope": has_write_scope(db, user_id),
-            "error": None,
         }
     except Exception as e:
-        return {
-            "connected": True,
-            "error": f"Google Drive error: {e}",
-            "user_email": None,
-            "user_name": None,
-            "drive_usage": "-",
-            "total_quota": "-",
-            "storage_percent": 0,
-            "total_files": 0,
-            "total_folders": 0,
-            "anyone_with_link_count": 0,
-            "shared_count": 0,
-            "private_count": 0,
-            "categories": {},
-            "files": [],
-            "has_drive_scope": has_write_scope(db, user_id),
-        }
+        data = dict(_NOT_CONNECTED)
+        data["connected"] = True
+        data["error"] = f"Google Drive error: {e}"
+        data["has_drive_scope"] = has_write_scope(db, user_id)
+        return data
+
+
+def generate_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    usage_bytes, limit_bytes = data.pop("usage_bytes", None), data.pop("limit_bytes", None)
+    data["drive_usage"] = format_file_size(usage_bytes)
+    data["total_quota"] = "-" if usage_bytes is None else format_file_size(limit_bytes) if limit_bytes else "Unlimited"
+    data["storage_percent"] = min(round((usage_bytes / limit_bytes) * 100, 1), 100) if usage_bytes and limit_bytes else 0
+    return data
+
+
+def generate_documents_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    return {
+        "connected": data["connected"],
+        "error": data["error"],
+        "files": data["files"],
+        "categories": data["categories"],
+        "total_files": data["total_files"],
+        "total_folders": data["total_folders"],
+    }
+
+
+def generate_security_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    anyone_with_link_files = [f for f in data["files"] if f.get("anyone_with_link")]
+    return {
+        "connected": data["connected"],
+        "error": data["error"],
+        "anyone_with_link_count": data["anyone_with_link_count"],
+        "shared_count": data["shared_count"],
+        "private_count": data["private_count"],
+        "anyone_with_link_files": anyone_with_link_files,
+        # Google has no API exposing a personal account's own 2-Step
+        # Verification status to third-party apps — not a gap in this
+        # code, a real platform limitation. Don't fabricate a status.
+        "mfa": {
+            "available": False,
+            "note": "Google doesn't expose 2-Step Verification status to third-party apps. Check it directly at myaccount.google.com/security.",
+        },
+    }
+
+
+def generate_storage_report(db: Session, user_id: int) -> dict:
+    data = _gather(db, user_id)
+    usage_bytes, limit_bytes = data.pop("usage_bytes", None), data.pop("limit_bytes", None)
+    if data["connected"] and not data["error"] and usage_bytes is not None:
+        token_service.record_storage_snapshot(db, user_id, "google", usage_bytes)
+    return {
+        "connected": data["connected"],
+        "error": data["error"],
+        "storage_used": format_file_size(usage_bytes),
+        "storage_total": "-" if usage_bytes is None else format_file_size(limit_bytes) if limit_bytes else "Unlimited",
+        "storage_percent": min(round((usage_bytes / limit_bytes) * 100, 1), 100) if usage_bytes and limit_bytes else 0,
+        "storage_growth": token_service.compute_storage_growth(db, user_id, "google"),
+    }
 
 
 def render_report_text(data: dict) -> str:

@@ -3,831 +3,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Drive Analytics Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Google Drive Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
     <style>
-        :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --primary-light: #eff6ff;
-            --success: #10b981;
-            --success-bg: #ecfdf5;
-            --warning: #f59e0b;
-            --warning-bg: #fffbeb;
-            --danger: #ef4444;
-            --danger-bg: #fef2f2;
-            --purple: #8b5cf6;
-            --purple-bg: #f5f3ff;
-            --gray-50: #f8fafc;
-            --gray-100: #f1f5f9;
-            --gray-200: #e2e8f0;
-            --gray-300: #cbd5e1;
-            --gray-400: #94a3b8;
-            --gray-500: #64748b;
-            --gray-600: #475569;
-            --gray-700: #334155;
-            --gray-800: #1e293b;
-            --gray-900: #0f172a;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #f1f5f9;
-            color: var(--gray-800);
-            line-height: 1.5;
-            padding: 30px 20px;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        /* Top Navbar / Header */
-        .top-nav {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: white;
-            padding: 16px 24px;
-            border-radius: 12px;
-            border: 1px solid var(--gray-200);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-            margin-bottom: 24px;
-        }
-
-        .brand-section {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-
-        .logo-icon {
-            width: 42px;
-            height: 42px;
-            background: linear-gradient(135deg, #4285f4, #34a853);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 22px;
-            font-weight: bold;
-            box-shadow: 0 2px 6px rgba(66, 133, 244, 0.3);
-        }
-
-        .brand-info h1 {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--gray-900);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .brand-info p {
-            font-size: 13px;
-            color: var(--gray-500);
-        }
-
-        .nav-actions {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 600;
-            border-radius: 8px;
-            text-decoration: none;
-            cursor: pointer;
-            border: none;
-            transition: all 0.15s ease;
-            font-family: inherit;
-        }
-
-        .btn-primary {
-            background-color: var(--primary);
-            color: white;
-        }
-        .btn-primary:hover {
-            background-color: var(--primary-dark);
-            transform: translateY(-1px);
-        }
-
-        .btn-outline {
-            background-color: white;
-            color: var(--gray-700);
-            border: 1px solid var(--gray-300);
-        }
-        .btn-outline:hover {
-            background-color: var(--gray-50);
-            border-color: var(--gray-400);
-        }
-
-        .btn-danger {
-            background-color: var(--danger-bg);
-            color: var(--danger);
-            border: 1px solid #fecaca;
-        }
-        .btn-danger:hover {
-            background-color: #fee2e2;
-        }
-
-        .inline-form {
-            display: inline;
-        }
-
-        /* Alerts */
-        .alert {
-            padding: 14px 18px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .alert-success {
-            background-color: var(--success-bg);
-            color: #065f46;
-            border: 1px solid #a7f3d0;
-        }
-        .alert-warning {
-            background-color: var(--warning-bg);
-            color: #92400e;
-            border: 1px solid #fde68a;
-        }
-        .alert-error {
-            background-color: var(--danger-bg);
-            color: #991b1b;
-            border: 1px solid #fecaca;
-        }
-
-        /* KPI Cards Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        .stat-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            border: 1px solid var(--gray-200);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .stat-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--gray-500);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .stat-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-        }
-
-        .stat-value {
-            font-size: 26px;
-            font-weight: 700;
-            color: var(--gray-900);
-            line-height: 1.2;
-        }
-
-        .stat-subtext {
-            font-size: 12px;
-            color: var(--gray-500);
-            margin-top: 6px;
-        }
-
-        /* Progress Bar */
-        .progress-bar-container {
-            width: 100%;
-            height: 8px;
-            background-color: var(--gray-100);
-            border-radius: 9999px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #6366f1);
-            border-radius: 9999px;
-            transition: width 0.4s ease;
-        }
-
-        /* Distribution & Category Section */
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 24px;
-            border: 1px solid var(--gray-200);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-            margin-bottom: 24px;
-        }
-
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 18px;
-        }
-
-        .card-title {
-            font-size: 17px;
-            font-weight: 700;
-            color: var(--gray-900);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .category-pills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-
-        .category-pill {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            background: var(--gray-50);
-            border: 1px solid var(--gray-200);
-            border-radius: 20px;
-            font-size: 13px;
-            color: var(--gray-700);
-        }
-
-        .category-pill strong {
-            color: var(--gray-900);
-        }
-
-        /* Filter & Search Bar */
-        .filter-bar {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 18px;
-        }
-
-        .search-box {
-            position: relative;
-            flex: 1;
-            min-width: 250px;
-        }
-
-        .search-box input {
-            width: 100%;
-            padding: 10px 14px 10px 38px;
-            font-size: 14px;
-            font-family: inherit;
-            border: 1px solid var(--gray-300);
-            border-radius: 8px;
-            background: white;
-            outline: none;
-            transition: border-color 0.15s ease;
-        }
-
-        .search-box input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-        }
-
-        .search-icon {
-            position: absolute;
-            left: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--gray-400);
-            font-size: 15px;
-        }
-
-        .filter-tags {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .filter-tag {
-            padding: 6px 12px;
-            font-size: 13px;
-            font-weight: 500;
-            border-radius: 20px;
-            cursor: pointer;
-            background: var(--gray-100);
-            color: var(--gray-600);
-            border: 1px solid transparent;
-            transition: all 0.15s ease;
-        }
-
-        .filter-tag:hover {
-            background: var(--gray-200);
-        }
-
-        .filter-tag.active {
-            background: var(--primary);
-            color: white;
-        }
-
-        /* Table */
-        .table-responsive {
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-            text-align: left;
-        }
-
-        th {
-            background-color: var(--gray-50);
-            padding: 12px 16px;
-            font-weight: 600;
-            color: var(--gray-600);
-            border-bottom: 1px solid var(--gray-200);
-            white-space: nowrap;
-        }
-
-        td {
-            padding: 14px 16px;
-            border-bottom: 1px solid var(--gray-100);
-            color: var(--gray-800);
-            vertical-align: middle;
-        }
-
-        tr:hover td {
-            background-color: var(--gray-50);
-        }
-
-        .file-name-cell {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 600;
-            color: var(--gray-900);
-        }
-
-        .file-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-            background: var(--gray-100);
-            flex-shrink: 0;
-        }
-
-        /* Badge Styles */
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 9px;
-            border-radius: 9999px;
-            font-size: 12px;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .badge-public {
-            background-color: #fee2e2;
-            color: #b91c1c;
-            border: 1px solid #fca5a5;
-        }
-
-        .badge-shared {
-            background-color: #e0e7ff;
-            color: #4338ca;
-            border: 1px solid #c7d2fe;
-        }
-
-        .badge-private {
-            background-color: #f1f5f9;
-            color: #475569;
-            border: 1px solid #e2e8f0;
-        }
-
-        .badge-category {
-            background-color: var(--gray-100);
-            color: var(--gray-700);
-            font-weight: 500;
-        }
-
-        .link-action {
-            color: var(--primary);
-            text-decoration: none;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .link-action:hover {
-            text-decoration: underline;
-        }
-
-        /* Email & Text Tool Cards */
-        .email-form {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .email-form input[type="email"] {
-            flex: 1;
-            padding: 10px 14px;
-            border: 1px solid var(--gray-300);
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: inherit;
-        }
-
-        .email-form input[type="email"]:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-        }
-
-        pre {
-            background: #0f172a;
-            color: #f8fafc;
-            padding: 18px;
-            border-radius: 10px;
-            overflow-x: auto;
-            font-size: 13px;
-            line-height: 1.5;
-            max-height: 350px;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        }
-
-        .empty-placeholder {
-            text-align: center;
-            padding: 48px 20px;
-            color: var(--gray-500);
-        }
-
-        .empty-placeholder h3 {
-            color: var(--gray-800);
-            font-size: 18px;
-            margin-bottom: 8px;
-        }
+        .progress-track { background: var(--ink-100); border-radius: 999px; height: 8px; overflow: hidden; margin-top: 10px; }
+        .progress-fill { background: var(--primary); height: 100%; border-radius: 999px; }
+        .category-pills { display: flex; flex-wrap: wrap; gap: 10px; }
+        .category-pill { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--ink-50); border: 1px solid var(--ink-200); border-radius: 20px; font-size: 13px; color: var(--ink-700); }
+        .category-pill strong { color: var(--ink-900); }
+        .email-form { display: flex; gap: 10px; margin-top: 10px; }
+        .email-form input[type="email"] { flex: 1; padding: 10px 14px; border: 1px solid var(--ink-300); border-radius: 8px; font-size: 14px; font-family: inherit; }
+        pre { background: var(--ink-900); color: var(--ink-50); padding: 18px; border-radius: 10px; overflow-x: auto; font-size: 13px; line-height: 1.5; max-height: 300px; }
+        .inline-form { display: inline; }
+        .btn-danger { background: var(--danger-bg); color: var(--danger); border-color: #fecaca; }
     </style>
 </head>
 <body>
-
-<div class="container">
-    <!-- Top Navigation Bar -->
-    <div class="top-nav">
-        <div class="brand-section">
-            <div class="logo-icon">▲</div>
-            <div class="brand-info">
-                <h1>Google Drive Dashboard</h1>
-                <p>
-                    {% if connected and user_email %}
-                    Connected as <strong>{{ user_email }}</strong>
-                    {% else %}
-                    Cloud Security & File Analytics
-                    {% endif %}
-                </p>
-            </div>
-        </div>
-        <div class="nav-actions">
-            {% if connected %}
-            <a href="/connect/google" class="btn btn-outline" title="Switch account or refresh permissions">🔄 Switch Account</a>
-            <form action="/google/disconnect" method="post" class="inline-form">
-                <button type="submit" class="btn btn-danger" title="Disconnect Google Drive">Disconnect</button>
-            </form>
-            {% else %}
-            <a href="/connect/google" class="btn btn-primary">Connect Google Drive</a>
-            {% endif %}
-            <a href="/dropbox/report" class="btn btn-outline">Dropbox Report</a>
-            <a href="/microsoft/report" class="btn btn-outline">OneDrive Report</a>
-            <a href="/dashboard" class="btn btn-outline">Home</a>
-            <form action="/auth/logout" method="post" class="inline-form">
-                <button type="submit" class="btn btn-danger">Log Out</button>
-            </form>
-        </div>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>Google Drive</a>
+    <div class="site-nav-links">
+        {% if connected %}
+        <a href="/connect/google" class="btn btn-secondary" title="Switch account or refresh permissions">Switch account</a>
+        <form action="/google/disconnect" method="post" class="inline-form"><button type="submit" class="btn btn-danger">Disconnect</button></form>
+        {% else %}
+        <a href="/connect/google" class="btn btn-primary">Connect Google Drive</a>
+        {% endif %}
+        <a href="/dropbox/report" class="btn btn-secondary">Dropbox</a>
+        <a href="/microsoft/report" class="btn btn-secondary">OneDrive</a>
+        <a href="/dashboard" class="btn btn-secondary">Home</a>
+        <form action="/auth/logout" method="post" class="inline-form"><button type="submit" class="btn btn-danger">Log out</button></form>
     </div>
-
-    <!-- Alert Notifications -->
-    {% if success %}
-    <div class="alert alert-success">
-        <span>✅</span>
-        <div>{{ success }}</div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    {% if connected %}
+    <div class="tab-nav">
+        <a href="/google/report" class="tab-link active">Overview</a>
+        <a href="/account/google/security" class="tab-link">Security</a>
+        <a href="/account/google/documents" class="tab-link">Documents</a>
+        <a href="/account/google/storage" class="tab-link">Storage</a>
+        <a href="/account/google/recommendations" class="tab-link">Recommendations</a>
     </div>
     {% endif %}
 
-    {% if error %}
-    <div class="alert alert-error">
-        <span>⚠️</span>
-        <div><strong>Error:</strong> {{ error }}</div>
-    </div>
-    {% endif %}
+    {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+    {% if error %}<div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>{% endif %}
 
     {% if not connected %}
-    <!-- Not Connected State -->
     <div class="card empty-placeholder">
-        <h3>Google Drive Not Connected</h3>
-        <p style="margin-bottom: 20px;">Connect your Google Drive account to visualize storage usage, audit shared permissions, and explore files.</p>
-        <a href="/connect/google" class="btn btn-primary" style="padding: 12px 24px; font-size: 15px;">Connect Google Drive Now</a>
+        <h3>Google Drive not connected</h3>
+        <p>Connect your Google Drive account to see storage usage, sharing exposure, and more.</p>
+        <a href="/connect/google" class="btn btn-primary btn-lg">Connect Google Drive</a>
     </div>
     {% else %}
 
-    <!-- Missing Scope Warning -->
     {% if not has_drive_scope %}
-    <div class="alert alert-warning">
-        <span>⚠️</span>
-        <div>
-            <strong>Permission Required:</strong> Google Drive read scope was not granted.
-            <a href="/connect/google" style="color: #92400e; font-weight: 700; text-decoration: underline; margin-left: 6px;">Click here to Re-authenticate</a> and ensure you check the box for <em>"See and download all your Google Drive files"</em>.
-        </div>
+    <div class="alert alert-info">
+        <strong>Permission needed:</strong> Google Drive access wasn't granted.
+        <a href="/connect/google" style="font-weight: 700; text-decoration: underline;">Reconnect</a> and check the box for "See and download all your Google Drive files."
     </div>
     {% endif %}
 
-    <!-- Top KPI Metric Cards Grid -->
     <div class="stats-grid">
-        <!-- Storage Card -->
         <div class="stat-card">
-            <div class="stat-card-header">
-                <span class="stat-label">Storage Used</span>
-                <span class="stat-icon" style="background: var(--primary-light); color: var(--primary);">💾</span>
-            </div>
+            <div class="stat-label">Storage used</div>
             <div class="stat-value">{{ drive_usage }}</div>
-            <div class="stat-subtext">of {{ total_quota }} quota ({{ storage_percent }}%)</div>
-            <div class="progress-bar-container">
-                <div class="progress-bar-fill" style="width: {{ storage_percent }}%;"></div>
-            </div>
+            <div class="stat-sub">of {{ total_quota }} ({{ storage_percent }}%)</div>
+            <div class="progress-track"><div class="progress-fill" style="width: {{ storage_percent }}%;"></div></div>
         </div>
-
-        <!-- Total Files Card -->
         <div class="stat-card">
-            <div class="stat-card-header">
-                <span class="stat-label">Total Files & Folders</span>
-                <span class="stat-icon" style="background: var(--purple-bg); color: var(--purple);">📁</span>
-            </div>
-            <div class="stat-value">{{ total_files }} <span style="font-size: 15px; font-weight: 500; color: var(--gray-500);">files</span></div>
-            <div class="stat-subtext">{{ total_folders }} folders indexed</div>
+            <div class="stat-label">Files &amp; folders</div>
+            <div class="stat-value">{{ total_files }}</div>
+            <div class="stat-sub">{{ total_folders }} folders</div>
         </div>
-
-        <!-- Public Links ("Anyone with link") Card -->
         <div class="stat-card">
-            <div class="stat-card-header">
-                <span class="stat-label">Anyone With Link</span>
-                <span class="stat-icon" style="background: var(--danger-bg); color: var(--danger);">🌐</span>
-            </div>
-            <div class="stat-value" style="color: {% if anyone_with_link_count > 0 %}var(--danger){% else %}var(--gray-900){% endif %};">
-                {{ anyone_with_link_count }}
-            </div>
-            <div class="stat-subtext">Publicly accessible files</div>
+            <div class="stat-label">Anyone with link</div>
+            <div class="stat-value" style="color: {{ 'var(--danger)' if anyone_with_link_count > 0 else 'var(--ink-900)' }};">{{ anyone_with_link_count }}</div>
+            <div class="stat-sub">publicly accessible files</div>
         </div>
-
-        <!-- Shared Files Card -->
         <div class="stat-card">
-            <div class="stat-card-header">
-                <span class="stat-label">Shared With People</span>
-                <span class="stat-icon" style="background: #e0e7ff; color: #4338ca;">👥</span>
-            </div>
+            <div class="stat-label">Shared with people</div>
             <div class="stat-value">{{ shared_count }}</div>
-            <div class="stat-subtext">{{ private_count }} private files</div>
+            <div class="stat-sub">{{ private_count }} private files</div>
         </div>
     </div>
 
-    <!-- Category Distribution Breakdown Card -->
     {% if categories %}
     <div class="card">
-        <div class="card-header">
-            <div class="card-title">📊 File Type Breakdown</div>
-        </div>
+        <div class="card-title">File type breakdown</div>
         <div class="category-pills">
             {% for cat, count in categories.items() %}
-            <div class="category-pill">
-                <span>
-                    {% if cat == 'Folder' %}📁{% elif cat == 'Document' %}📄{% elif cat == 'Spreadsheet' %}📈{% elif cat == 'Presentation' %}📊{% elif cat == 'PDF' %}📑{% elif cat == 'Image' %}🖼️{% elif cat == 'Media' %}🎬{% elif cat == 'Code' %}💻{% elif cat == 'Archive' %}📦{% else %}📎{% endif %}
-                </span>
-                <span>{{ cat }}:</span>
-                <strong>{{ count }}</strong>
-            </div>
+            <div class="category-pill"><span>{{ cat }}:</span> <strong>{{ count }}</strong></div>
             {% endfor %}
         </div>
     </div>
     {% endif %}
 
-    <!-- File Explorer Card -->
     <div class="card">
-        <div class="card-header">
-            <div class="card-title">🔍 Drive File Explorer</div>
-            <span class="badge badge-private" id="visible-count">{{ files|length }} items</span>
-        </div>
-
-        <!-- Filter & Live Search Toolbar -->
-        <div class="filter-bar">
-            <div class="search-box">
-                <span class="search-icon">🔍</span>
-                <input type="text" id="fileSearch" placeholder="Search files by name or type..." onkeyup="filterFiles()">
-            </div>
-            <div class="filter-tags">
-                <button class="filter-tag active" onclick="setFilter('all', this)">All</button>
-                <button class="filter-tag" onclick="setFilter('public', this)">🌐 Public Link ({{ anyone_with_link_count }})</button>
-                <button class="filter-tag" onclick="setFilter('shared', this)">👥 Shared ({{ shared_count }})</button>
-                <button class="filter-tag" onclick="setFilter('private', this)">🔒 Private ({{ private_count }})</button>
-                <button class="filter-tag" onclick="setFilter('folder', this)">📁 Folders</button>
-            </div>
-        </div>
-
-        <!-- Files Table -->
-        {% if files %}
-        <div class="table-responsive">
-            <table id="filesTable">
-                <thead>
-                    <tr>
-                        <th>Item Name</th>
-                        <th>Type</th>
-                        <th>Sharing Access</th>
-                        <th>Size</th>
-                        <th>Last Modified</th>
-                        <th style="text-align: right;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for file in files %}
-                    <tr class="file-row"
-                        data-name="{{ file.name|lower }}"
-                        data-category="{{ file.category|lower }}"
-                        data-sharing="{{ file.sharing_badge }}"
-                        data-folder="{{ 'true' if file.is_folder else 'false' }}">
-                        <td>
-                            <div class="file-name-cell">
-                                <span class="file-icon">
-                                    {% if file.is_folder %}📁
-                                    {% elif file.category == 'Document' %}📄
-                                    {% elif file.category == 'Spreadsheet' %}📈
-                                    {% elif file.category == 'Presentation' %}📊
-                                    {% elif file.category == 'PDF' %}📑
-                                    {% elif file.category == 'Image' %}🖼️
-                                    {% elif file.category == 'Media' %}🎬
-                                    {% elif file.category == 'Code' %}💻
-                                    {% elif file.category == 'Archive' %}📦
-                                    {% else %}📎{% endif %}
-                                </span>
-                                <div>
-                                    <div>{{ file.name }}</div>
-                                </div>
-                            </div>
-                        </td>
-                        <td>
-                            <span class="badge badge-category">{{ file.category }}</span>
-                        </td>
-                        <td>
-                            {% if file.sharing_badge == 'public' %}
-                            <span class="badge badge-public">🌐 Anyone with link</span>
-                            {% elif file.sharing_badge == 'shared' %}
-                            <span class="badge badge-shared">👥 Shared</span>
-                            {% else %}
-                            <span class="badge badge-private">🔒 Private</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ file.formatted_size }}</td>
-                        <td style="color: var(--gray-500); font-size: 13px;">{{ file.formatted_date }}</td>
-                        <td style="text-align: right;">
-                            {% if file.webViewLink %}
-                            <a href="{{ file.webViewLink }}" target="_blank" class="link-action">
-                                Open ↗
-                            </a>
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="empty-placeholder">
-            <p>No files found in this Google Drive account.</p>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Email Report Automation Card -->
-    <div class="card">
-        <div class="card-title">📧 Email Automated Audit Report</div>
-        <p style="font-size: 13px; color: var(--gray-500); margin-top: 4px;">Send a complete Google Drive audit breakdown including storage stats and sharing permissions.</p>
+        <div class="card-title">Email a report</div>
         <form action="/google/email_report" method="post" class="email-form">
-            <input type="email" name="email" placeholder="Enter recipient email address (e.g. you@example.com)" required>
-            <button type="submit" class="btn btn-primary">Send Report</button>
+            <input type="email" name="email" placeholder="you@example.com" required>
+            <button type="submit" class="btn btn-primary">Send</button>
         </form>
     </div>
 
-    <!-- Text Report Accordion -->
-    <details class="card" style="cursor: pointer;">
-        <summary class="card-title" style="cursor: pointer; user-select: none;">📄 Raw Text / Export Report</summary>
-        <div style="margin-top: 16px;">
-            <pre>{{ report }}</pre>
-        </div>
+    <details class="card">
+        <summary class="card-title" style="cursor: pointer;">Raw text report</summary>
+        <div style="margin-top: 16px;"><pre>{{ report }}</pre></div>
     </details>
     {% endif %}
-
 </div>
-
-<!-- Interactive Search & Filtering JavaScript -->
-<script>
-let currentFilter = 'all';
-
-function setFilter(filterType, element) {
-    currentFilter = filterType;
-    document.querySelectorAll('.filter-tag').forEach(tag => tag.classList.remove('active'));
-    if (element) {
-        element.classList.add('active');
-    }
-    filterFiles();
-}
-
-function filterFiles() {
-    const searchInput = document.getElementById('fileSearch');
-    const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
-    const rows = document.querySelectorAll('.file-row');
-    let visible = 0;
-
-    rows.forEach(row => {
-        const name = row.getAttribute('data-name') || '';
-        const category = row.getAttribute('data-category') || '';
-        const sharing = row.getAttribute('data-sharing') || '';
-        const isFolder = row.getAttribute('data-folder') === 'true';
-
-        const matchesQuery = query === '' || name.includes(query) || category.includes(query);
-        let matchesFilter = true;
-
-        if (currentFilter === 'public') {
-            matchesFilter = (sharing === 'public');
-        } else if (currentFilter === 'shared') {
-            matchesFilter = (sharing === 'shared');
-        } else if (currentFilter === 'private') {
-            matchesFilter = (sharing === 'private');
-        } else if (currentFilter === 'folder') {
-            matchesFilter = isFolder;
-        }
-
-        if (matchesQuery && matchesFilter) {
-            row.style.display = '';
-            visible++;
-        } else {
-            row.style.display = 'none';
-        }
-    });
-
-    const countBadge = document.getElementById('visible-count');
-    if (countBadge) {
-        countBadge.innerText = visible + ' items';
-    }
-}
-</script>
-
-    <script src="/static/js/impersonation-banner.js"></script>
+<script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

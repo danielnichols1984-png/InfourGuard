@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ provider_label }} Storage</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        .progress-track { background: var(--ink-100); border-radius: 999px; height: 10px; overflow: hidden; margin-top: 10px; }
+        .progress-fill { background: var(--primary); height: 100%; border-radius: 999px; }
+    </style>
+</head>
+<body>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>{{ provider_label }}</a>
+    <div class="site-nav-links">
+        <a href="/dashboard" class="btn btn-secondary">Home</a>
+    </div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div class="tab-nav">
+        <a href="/{{ provider }}/report" class="tab-link">Overview</a>
+        <a href="/account/{{ provider }}/security" class="tab-link">Security</a>
+        <a href="/account/{{ provider }}/documents" class="tab-link">Documents</a>
+        <a href="/account/{{ provider }}/storage" class="tab-link active">Storage</a>
+        <a href="/account/{{ provider }}/recommendations" class="tab-link">Recommendations</a>
+    </div>
+
+    {% if not connected %}
+    <div class="card empty-placeholder">
+        <h3>{{ provider_label }} not connected</h3>
+        <p>Connect this account from the Overview tab first.</p>
+        <a href="/{{ provider }}/report" class="btn btn-primary">Go to Overview</a>
+    </div>
+    {% elif error %}
+    <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
+    {% else %}
+
+    <div class="card">
+        <div class="card-title">Storage used</div>
+        <div style="font-size: 32px; font-weight: 800;">{{ storage_used }} <span style="font-size: 16px; color: var(--ink-500); font-weight: 600;">of {{ storage_total }}</span></div>
+        <div class="progress-track"><div class="progress-fill" style="width: {{ storage_percent }}%;"></div></div>
+        <div style="margin-top: 6px; font-size: 13px; color: var(--ink-500);">{{ storage_percent }}% full</div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Growth trend</div>
+        {% if storage_growth and storage_growth.available %}
+        <dl class="kv">
+            <dt>Change over {{ storage_growth.period_days }} days</dt>
+            <dd>{{ "%.1f"|format(storage_growth.delta_bytes / 1e9) }} GB</dd>
+            <dt>Projected monthly rate</dt>
+            <dd>{{ "%.1f"|format(storage_growth.monthly_rate_bytes / 1e9) }} GB/month</dd>
+        </dl>
+        {% else %}
+        <p style="color: var(--ink-500);">{{ storage_growth.note if storage_growth else "Not enough history yet." }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+<script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

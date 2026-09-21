@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit homepage — Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+</head>
+<body>
+    <nav class="site-nav">
+        <a href="/" class="brand"><span class="brand-mark"></span>Edit homepage content</a>
+        <div class="site-nav-links">
+            <a href="/" class="btn btn-secondary" target="_blank">View homepage</a>
+            <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
+        </div>
+    </nav>
+
+    <div class="container" style="padding-top: 32px; padding-bottom: 64px; max-width: 720px;">
+        <div id="alert-box"></div>
+        <form id="content-form">
+            {% for key, label in [
+                ('brand_name', 'Brand name'),
+                ('hero_headline', 'Hero headline'),
+                ('hero_subheadline', 'Hero subheadline'),
+                ('hero_cta_primary', 'Primary button label'),
+                ('hero_cta_secondary', 'Secondary button label'),
+                ('connects_label', 'Integrations strip label'),
+                ('feature_1_title', 'Feature 1 — title'),
+                ('feature_1_body', 'Feature 1 — description'),
+                ('feature_2_title', 'Feature 2 — title'),
+                ('feature_2_body', 'Feature 2 — description'),
+                ('feature_3_title', 'Feature 3 — title'),
+                ('feature_3_body', 'Feature 3 — description'),
+                ('feature_4_title', 'Feature 4 — title'),
+                ('feature_4_body', 'Feature 4 — description'),
+                ('pricing_teaser_headline', 'Pricing section headline'),
+                ('pricing_teaser_body', 'Pricing section body'),
+                ('pricing_teaser_cta', 'Pricing button label'),
+                ('footer_tagline', 'Footer tagline'),
+            ] %}
+            <div class="card">
+                <label class="field-label" for="field-{{ key }}">{{ label }}</label>
+                <textarea id="field-{{ key }}" data-key="{{ key }}">{{ content.get(key, '') }}</textarea>
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary btn-lg">Save changes</button>
+        </form>
+    </div>
+
+    <script>
+        const form = document.getElementById("content-form");
+        const alertBox = document.getElementById("alert-box");
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const updates = {};
+            form.querySelectorAll("textarea[data-key]").forEach((el) => {
+                updates[el.dataset.key] = el.value;
+            });
+            const res = await fetch("/content/admin/homepage", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(updates),
+            });
+            if (res.ok) {
+                alertBox.innerHTML = '<div class="alert alert-success">Saved — the homepage now reflects these changes.</div>';
+            } else {
+                const detail = await res.text();
+                alertBox.innerHTML = `<div class="alert alert-error">Failed to save: ${detail}</div>`;
+            }
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+    </script>
+<script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

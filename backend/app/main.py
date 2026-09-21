@@ -14,7 +14,11 @@ from shared.auth_core.routes import router as auth_router
 from shared.businesses_core.db import get_db as get_businesses_db, init_db as init_businesses_db
 from shared.businesses_core.routes import router as businesses_router
 from shared.businesses_core.service import get_membership as get_business_membership
+from shared.content_core.db import get_db as get_content_db, init_db as init_content_db
+from shared.content_core.routes import router as content_router
+from shared.content_core.service import get_all as get_homepage_content, seed_defaults as seed_default_content
 from shared.integrations_core import dropbox_integration, google as google_integration, microsoft as microsoft_integration
+from shared.integrations_core import recommendations as integrations_recommendations
 from shared.integrations_core import service as integrations_service
 from shared.integrations_core.db import get_db as get_integrations_db, init_db as init_integrations_db
 from shared.integrations_core.routes import dropbox_callback, google_callback
@@ -113,6 +117,7 @@ app.include_router(integrations_router, prefix="/connect")
 app.include_router(migrations_router, prefix="/migrations")
 app.include_router(tenants_router, prefix="/tenants")
 app.include_router(businesses_router, prefix="/businesses")
+app.include_router(content_router, prefix="/content")
 
 # Aliases for whatever redirect URI is actually registered with each
 # provider's OAuth app (see GOOGLE_REDIRECT_URI/DROPBOX_REDIRECT_URI in
@@ -160,6 +165,32 @@ def _init_tenants_db():
 @app.on_event("startup")
 def _init_businesses_db():
     init_businesses_db()
+
+
+@app.on_event("startup")
+def _init_content_db():
+    init_content_db()
+    db = next(get_content_db())
+    try:
+        seed_default_content(db)
+    finally:
+        db.close()
+
+
+@app.get("/", response_class=HTMLResponse)
+def home_page(request: Request, user=Depends(get_optional_user), db: Session = Depends(get_content_db)):
+    content = get_homepage_content(db)
+    return templates.TemplateResponse(request, "home.html", {"user": user, "content": content})
+
+
+@app.get("/admin/content", response_class=HTMLResponse)
+def admin_content_page(request: Request, user=Depends(get_optional_user), db: Session = Depends(get_content_db)):
+    if not user:
+        return RedirectResponse("/login")
+    if not user.is_admin:
+        return RedirectResponse("/dashboard")
+    content = get_homepage_content(db)
+    return templates.TemplateResponse(request, "admin_content.html", {"user": user, "content": content})
 
 
 @app.get("/login")
@@ -491,6 +522,92 @@ def tenant_recommendations_page(
     context["error"] = None
     context["recommendations"] = tenants_recommendations.generate_recommendations(merged)
     return templates.TemplateResponse(request, "tenant_recommendations.html", context)
+
+
+# --- Individual account tabs (Security/Documents/Storage/Recommendations) --
+# Mirrors _TENANT_PROVIDER_MODULES above. The Overview page for each
+# provider stays at its existing path (/google/report etc., unchanged for
+# backward compatibility) — only these four additional tabs live under
+# /account/{provider}.
+
+_PERSONAL_PROVIDER_MODULES = {
+    "google": (google_integration, "Google Drive"),
+    "dropbox": (dropbox_integration, "Dropbox"),
+    "microsoft": (microsoft_integration, "OneDrive"),
+}
+
+
+def _personal_module_or_404(provider: str):
+    if provider not in _PERSONAL_PROVIDER_MODULES:
+        raise StarletteHTTPException(status_code=404, detail="Unknown account provider")
+    return _PERSONAL_PROVIDER_MODULES[provider]
+
+
+@app.get("/account/{provider}/security", response_class=HTMLResponse)
+def account_security_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_integrations_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _personal_module_or_404(provider)
+    data = module.generate_security_report(db, user.id)
+    return templates.TemplateResponse(
+        request, "account_security.html", {"user": user, "provider": provider, "provider_label": label, **data}
+    )
+
+
+@app.get("/account/{provider}/documents", response_class=HTMLResponse)
+def account_documents_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_integrations_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _personal_module_or_404(provider)
+    data = module.generate_documents_report(db, user.id)
+    return templates.TemplateResponse(
+        request, "account_documents.html", {"user": user, "provider": provider, "provider_label": label, **data}
+    )
+
+
+@app.get("/account/{provider}/storage", response_class=HTMLResponse)
+def account_storage_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_integrations_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _personal_module_or_404(provider)
+    data = module.generate_storage_report(db, user.id)
+    return templates.TemplateResponse(
+        request, "account_storage.html", {"user": user, "provider": provider, "provider_label": label, **data}
+    )
+
+
+@app.get("/account/{provider}/recommendations", response_class=HTMLResponse)
+def account_recommendations_page(
+    provider: str, request: Request, user=Depends(get_optional_user), db: Session = Depends(get_integrations_db)
+):
+    if not user:
+        return RedirectResponse("/login")
+    module, label = _personal_module_or_404(provider)
+
+    overview_data = module.generate_report(db, user.id)
+    context = {"user": user, "provider": provider, "provider_label": label}
+    if not overview_data.get("connected"):
+        context.update(overview_data)
+        context["recommendations"] = []
+        return templates.TemplateResponse(request, "account_recommendations.html", context)
+
+    security_data = module.generate_security_report(db, user.id)
+    storage_data = module.generate_storage_report(db, user.id)
+    merged = {
+        **overview_data,
+        **{k: v for k, v in security_data.items() if k not in ("connected", "error")},
+        **{k: v for k, v in storage_data.items() if k not in ("connected", "error")},
+    }
+    context["connected"] = True
+    context["error"] = None
+    context["recommendations"] = integrations_recommendations.generate_recommendations(merged)
+    return templates.TemplateResponse(request, "account_recommendations.html", context)
 
 
 @app.get("/google/report", response_class=HTMLResponse)

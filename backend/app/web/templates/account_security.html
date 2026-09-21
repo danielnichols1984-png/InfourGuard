@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ provider_label }} Security</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+</head>
+<body>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>{{ provider_label }}</a>
+    <div class="site-nav-links">
+        <a href="/dashboard" class="btn btn-secondary">Home</a>
+    </div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div class="tab-nav">
+        <a href="/{{ provider }}/report" class="tab-link">Overview</a>
+        <a href="/account/{{ provider }}/security" class="tab-link active">Security</a>
+        <a href="/account/{{ provider }}/documents" class="tab-link">Documents</a>
+        <a href="/account/{{ provider }}/storage" class="tab-link">Storage</a>
+        <a href="/account/{{ provider }}/recommendations" class="tab-link">Recommendations</a>
+    </div>
+
+    {% if not connected %}
+    <div class="card empty-placeholder">
+        <h3>{{ provider_label }} not connected</h3>
+        <p>Connect this account from the Overview tab first.</p>
+        <a href="/{{ provider }}/report" class="btn btn-primary">Go to Overview</a>
+    </div>
+    {% elif error %}
+    <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
+    {% else %}
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Anyone with the link</div>
+            <div class="stat-value" style="color: {{ 'var(--danger)' if anyone_with_link_count > 0 else 'var(--ink-900)' }};">{{ anyone_with_link_count }}</div>
+            <div class="stat-sub">{{ shared_count }} shared with specific people</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Private files</div>
+            <div class="stat-value">{{ private_count }}</div>
+        </div>
+        {% if mfa %}
+        <div class="stat-card">
+            <div class="stat-label">MFA methods registered</div>
+            {% if mfa.available %}
+            <div class="stat-value" style="color: {{ 'var(--danger)' if mfa.methods_count == 0 else 'var(--success)' }};">{{ mfa.methods_count }}</div>
+            {% else %}
+            <div class="stat-value" style="font-size: 16px; color: var(--ink-500);">Not available</div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if mfa and not mfa.available %}
+    <div class="alert alert-info">{{ mfa.note }}</div>
+    {% endif %}
+
+    {% if anyone_with_link_files %}
+    <div class="card">
+        <div class="card-title">Files shared with "anyone with the link" ({{ anyone_with_link_files|length }})</div>
+        <div class="table-responsive">
+            <table>
+                <thead><tr><th>Name</th><th>Size</th><th>Modified</th></tr></thead>
+                <tbody>
+                    {% for f in anyone_with_link_files %}
+                    <tr>
+                        <td>{% if f.webViewLink %}<a href="{{ f.webViewLink }}" target="_blank">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
+                        <td>{{ f.formatted_size }}</td>
+                        <td>{{ f.formatted_date }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <p style="color: var(--ink-500);">No files are shared with "anyone with the link" — nice and tidy.</p>
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+<script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

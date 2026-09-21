@@ -52,6 +52,10 @@ services:
         fromDatabase:
           name: dashboard-db
           property: connectionString
+      - key: CONTENT_DATABASE_URL
+        fromDatabase:
+          name: dashboard-db
+          property: connectionString
 
       - key: AUTH_SECRET_KEY
         generateValue: true

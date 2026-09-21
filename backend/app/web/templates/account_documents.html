@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ provider_label }} Documents</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+    <style>
+        .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+        .filter-tag { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--ink-200); background: white; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink-600); }
+        .filter-tag.active { background: var(--primary); border-color: var(--primary); color: white; }
+        #search-box { max-width: 320px; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>{{ provider_label }}</a>
+    <div class="site-nav-links">
+        <a href="/dashboard" class="btn btn-secondary">Home</a>
+    </div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div class="tab-nav">
+        <a href="/{{ provider }}/report" class="tab-link">Overview</a>
+        <a href="/account/{{ provider }}/security" class="tab-link">Security</a>
+        <a href="/account/{{ provider }}/documents" class="tab-link active">Documents</a>
+        <a href="/account/{{ provider }}/storage" class="tab-link">Storage</a>
+        <a href="/account/{{ provider }}/recommendations" class="tab-link">Recommendations</a>
+    </div>
+
+    {% if not connected %}
+    <div class="card empty-placeholder">
+        <h3>{{ provider_label }} not connected</h3>
+        <p>Connect this account from the Overview tab first.</p>
+        <a href="/{{ provider }}/report" class="btn btn-primary">Go to Overview</a>
+    </div>
+    {% elif error %}
+    <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
+    {% else %}
+
+    {% if categories %}
+    <div class="card">
+        <div class="card-title">By category</div>
+        <ul class="plain">
+            {% for cat, count in categories.items() %}
+            <li>{{ cat }}: {{ count }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-title">All files ({{ total_files }} files, {{ total_folders }} folders)</div>
+        <input type="text" id="search-box" placeholder="Search files...">
+        <div class="filter-bar">
+            <button class="filter-tag active" data-filter="all" onclick="setFilter('all')">All</button>
+            <button class="filter-tag" data-filter="public" onclick="setFilter('public')">Public link</button>
+            <button class="filter-tag" data-filter="shared" onclick="setFilter('shared')">Shared</button>
+            <button class="filter-tag" data-filter="private" onclick="setFilter('private')">Private</button>
+        </div>
+        <div class="table-responsive">
+            <table>
+                <thead><tr><th>Name</th><th>Category</th><th>Sharing</th><th>Size</th><th>Modified</th></tr></thead>
+                <tbody id="file-rows">
+                    {% for f in files %}
+                    <tr class="file-row" data-name="{{ f.name|lower }}" data-badge="{{ f.sharing_badge }}">
+                        <td>{% if f.webViewLink %}<a href="{{ f.webViewLink }}" target="_blank">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
+                        <td>{{ f.category }}</td>
+                        <td><span class="badge badge-{{ f.sharing_badge }}">{{ f.sharing_label }}</span></td>
+                        <td>{{ f.formatted_size }}</td>
+                        <td>{{ f.formatted_date }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+<script>
+    let activeFilter = "all";
+    function setFilter(f) {
+        activeFilter = f;
+        document.querySelectorAll(".filter-tag").forEach((el) => el.classList.toggle("active", el.dataset.filter === f));
+        filterFiles();
+    }
+    function filterFiles() {
+        const search = document.getElementById("search-box").value.toLowerCase();
+        document.querySelectorAll(".file-row").forEach((row) => {
+            const matchesSearch = row.dataset.name.includes(search);
+            const matchesFilter = activeFilter === "all" || row.dataset.badge === activeFilter;
+            row.style.display = matchesSearch && matchesFilter ? "" : "none";
+        });
+    }
+    const searchBox = document.getElementById("search-box");
+    if (searchBox) searchBox.addEventListener("input", filterFiles);
+</script>
+<script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

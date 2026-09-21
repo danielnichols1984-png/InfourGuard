@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ provider_label }} Recommendations</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/site.css">
+</head>
+<body>
+<nav class="site-nav">
+    <a href="/dashboard" class="brand"><span class="brand-mark"></span>{{ provider_label }}</a>
+    <div class="site-nav-links">
+        <a href="/dashboard" class="btn btn-secondary">Home</a>
+    </div>
+</nav>
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+    <div class="tab-nav">
+        <a href="/{{ provider }}/report" class="tab-link">Overview</a>
+        <a href="/account/{{ provider }}/security" class="tab-link">Security</a>
+        <a href="/account/{{ provider }}/documents" class="tab-link">Documents</a>
+        <a href="/account/{{ provider }}/storage" class="tab-link">Storage</a>
+        <a href="/account/{{ provider }}/recommendations" class="tab-link active">Recommendations</a>
+    </div>
+
+    {% if not connected %}
+    <div class="card empty-placeholder">
+        <h3>{{ provider_label }} not connected</h3>
+        <p>Connect this account from the Overview tab first.</p>
+        <a href="/{{ provider }}/report" class="btn btn-primary">Go to Overview</a>
+    </div>
+    {% elif error %}
+    <div class="alert alert-error"><strong>Error:</strong> {{ error }}</div>
+    {% elif not recommendations %}
+    <div class="card empty-placeholder">
+        <h3>Nothing to flag right now</h3>
+        <p>This account looks in good shape — no recommendations at the moment.</p>
+    </div>
+    {% else %}
+    {% for rec in recommendations %}
+    <div class="recommendation-card severity-{{ rec.severity }}">
+        <h4><span class="badge severity-{{ rec.severity }}">{{ rec.severity }}</span> {{ rec.title }}</h4>
+        <p>{{ rec.detail }}</p>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+<script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>
