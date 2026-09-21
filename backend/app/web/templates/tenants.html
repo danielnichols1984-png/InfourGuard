@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Organization Admin</title>
+</head>
+<body>
+    <h2>Organization Admin</h2>
+    <p><a href="/dashboard">Back to dashboard</a></p>
+    <p style="color:#666; font-size:13px;">
+        Connect your organization's admin account to see tenant-wide metrics
+        (users, storage, sharing). You must be an admin of that
+        organization for the connection to actually return data — a
+        non-admin will see a clear permission error instead of a false
+        result.
+    </p>
+    <div id="error" style="color:red;"></div>
+
+    <section><h3>Google Workspace</h3><div id="google_workspace-status">Loading&hellip;</div></section>
+    <section><h3>Microsoft 365</h3><div id="microsoft365-status">Loading&hellip;</div></section>
+    <section><h3>Dropbox Business</h3><div id="dropbox_business-status">Loading&hellip;</div></section>
+
+    <script>
+        const LABELS = {
+            google_workspace: { name: "Google Workspace", connectPath: "/tenants/google-workspace", reportPage: "/organization/google-workspace" },
+            microsoft365: { name: "Microsoft 365", connectPath: "/tenants/microsoft365", reportPage: "/organization/microsoft365" },
+            dropbox_business: { name: "Dropbox Business", connectPath: "/tenants/dropbox-business", reportPage: "/organization/dropbox-business" },
+        };
+
+        function showError(msg) { document.getElementById("error").textContent = msg || ""; }
+
+        function renderProvider(provider, connected) {
+            const statusDiv = document.getElementById(`${provider}-status`);
+            const info = LABELS[provider];
+            statusDiv.innerHTML = connected
+                ? `<a href="${info.reportPage}"><button>View report</button></a>`
+                : `<a href="${info.connectPath}"><button>Connect ${info.name}</button></a>`;
+        }
+
+        async function loadStatus() {
+            showError("");
+            try {
+                const statuses = await (await fetch("/tenants/status")).json();
+                const byProvider = Object.fromEntries(statuses.map((s) => [s.provider, s.connected]));
+                Object.keys(LABELS).forEach((provider) => renderProvider(provider, byProvider[provider]));
+            } catch (e) {
+                showError("Couldn't load organization status.");
+            }
+        }
+
+        loadStatus();
+    </script>
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

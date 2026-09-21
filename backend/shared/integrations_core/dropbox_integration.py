@@ -1,13 +1,18 @@
 """Dropbox integration: OAuth flow, file listing, and report generation."""
+import hashlib
 from pathlib import Path
 
 import dropbox
-from dropbox.files import FolderMetadata
+from dropbox.files import CommitInfo, FolderMetadata, UploadSessionCursor, WriteMode
 from sqlalchemy.orm import Session
 
 from shared.integrations_core import service as token_service
 from shared.integrations_core.config import settings
 from shared.integrations_core.email_utils import send_email
+
+DROPBOX_HASH_BLOCK_SIZE = 4 * 1024 * 1024
+DROPBOX_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
+DROPBOX_SIMPLE_UPLOAD_LIMIT = 150 * 1024 * 1024
 
 
 def get_client(db: Session, user_id: int) -> dropbox.Dropbox | None:
@@ -21,6 +26,116 @@ def get_client(db: Session, user_id: int) -> dropbox.Dropbox | None:
         app_key=settings.DROPBOX_APP_KEY,
         app_secret=settings.DROPBOX_APP_SECRET,
     )
+
+
+def compute_dropbox_content_hash(data: bytes) -> str:
+    """Dropbox's own upload-integrity hash: SHA-256 of each 4MB block,
+    concatenated, then SHA-256 of that. Documented at
+    https://www.dropbox.com/developers/reference/content-hash — computing
+    this locally lets us verify an upload against the `content_hash`
+    Dropbox reports back, with no extra API call."""
+    block_hashes = b"".join(
+        hashlib.sha256(data[i : i + DROPBOX_HASH_BLOCK_SIZE]).digest()
+        for i in range(0, len(data), DROPBOX_HASH_BLOCK_SIZE)
+    )
+    return hashlib.sha256(block_hashes).hexdigest()
+
+
+# ---------------------------------------------------------
+# MIGRATION SUPPORT: folder tree walking, download/upload, sharing
+# ---------------------------------------------------------
+
+
+def list_folder_tree(dbx: dropbox.Dropbox, root_path: str) -> list[dict]:
+    """Flat list of every file/folder under root_path, each carrying a
+    `relative_path` relative to that root."""
+    root_path = "" if root_path in ("", "/") else "/" + root_path.strip("/")
+
+    result = dbx.files_list_folder(root_path, recursive=True)
+    entries = list(result.entries)
+    while result.has_more:
+        result = dbx.files_list_folder_continue(result.cursor)
+        entries.extend(result.entries)
+
+    shared_link_paths = {
+        link.path_lower for link in dbx.sharing_list_shared_links().links if link.path_lower
+    }
+
+    tree = []
+    prefix_len = len(root_path)
+    for entry in entries:
+        is_folder = isinstance(entry, FolderMetadata)
+        full_path = entry.path_display or entry.name
+        relative_path = full_path[prefix_len:].lstrip("/")
+        if is_folder and not relative_path:
+            # Confirmed live: when root_path is a named subfolder (not the
+            # account root ""), Dropbox's recursive listing can include an
+            # entry for that root folder itself. A blank relative_path can
+            # never be a real child to migrate, so skip it — otherwise the
+            # migration engine tries to recreate the root folder as a
+            # child of itself at the destination.
+            continue
+        has_shared_link = (entry.path_lower or "") in shared_link_paths
+        has_sharing_info = bool(getattr(entry, "sharing_info", None))
+
+        tree.append(
+            {
+                "name": entry.name,
+                "path": full_path,
+                "relative_path": relative_path,
+                "is_folder": is_folder,
+                "size": 0 if is_folder else getattr(entry, "size", 0),
+                "content_hash": None if is_folder else getattr(entry, "content_hash", None),
+                "shared": has_sharing_info or has_shared_link,
+                "anyone_with_link": has_shared_link,
+            }
+        )
+    return tree
+
+
+def ensure_folder(dbx: dropbox.Dropbox, path: str) -> str:
+    """Creates `path` (and any missing parents) if it doesn't exist yet.
+    Returns the path. Dropbox's create_folder_v2 already no-ops sanely for
+    intermediate segments, so this just swallows the "already exists" case."""
+    try:
+        dbx.files_create_folder_v2(path)
+    except dropbox.exceptions.ApiError as e:
+        if not (hasattr(e.error, "is_path") and e.error.is_path() and e.error.get_path().is_conflict()):
+            raise
+    return path
+
+
+def download_file_bytes(dbx: dropbox.Dropbox, path: str) -> bytes:
+    _, response = dbx.files_download(path)
+    return response.content
+
+
+def upload_file_bytes(dbx: dropbox.Dropbox, path: str, data: bytes) -> dict:
+    """Uploads `data` to `path`, using a chunked upload session for files
+    over Dropbox's 150MB simple-upload limit. Returns
+    {"path", "content_hash"}."""
+    if len(data) <= DROPBOX_SIMPLE_UPLOAD_LIMIT:
+        metadata = dbx.files_upload(data, path, mode=WriteMode("overwrite"))
+    else:
+        session_start = dbx.files_upload_session_start(data[:DROPBOX_UPLOAD_CHUNK_SIZE])
+        cursor = UploadSessionCursor(
+            session_id=session_start.session_id, offset=DROPBOX_UPLOAD_CHUNK_SIZE
+        )
+        offset = DROPBOX_UPLOAD_CHUNK_SIZE
+        while len(data) - offset > DROPBOX_UPLOAD_CHUNK_SIZE:
+            chunk = data[offset : offset + DROPBOX_UPLOAD_CHUNK_SIZE]
+            dbx.files_upload_session_append_v2(chunk, cursor)
+            cursor.offset += len(chunk)
+            offset += len(chunk)
+        commit = CommitInfo(path=path, mode=WriteMode("overwrite"))
+        metadata = dbx.files_upload_session_finish(data[offset:], cursor, commit)
+
+    return {"path": metadata.path_display, "content_hash": metadata.content_hash}
+
+
+def apply_public_sharing(dbx: dropbox.Dropbox, path: str) -> str:
+    link = dbx.sharing_create_shared_link_with_settings(path)
+    return link.url
 
 
 def format_file_size(size_bytes) -> str:

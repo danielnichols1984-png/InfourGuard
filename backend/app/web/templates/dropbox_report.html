@@ -541,6 +541,7 @@
             <a href="/connect/dropbox" class="btn btn-primary">Connect Dropbox</a>
             {% endif %}
             <a href="/google/report" class="btn btn-outline">Google Drive Report</a>
+            <a href="/microsoft/report" class="btn btn-outline">OneDrive Report</a>
             <a href="/dashboard" class="btn btn-outline">Home</a>
             <form action="/auth/logout" method="post" class="inline-form">
                 <button type="submit" class="btn btn-danger">Log Out</button>
@@ -814,5 +815,6 @@ function filterFiles() {
 }
 </script>
 
+    <script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

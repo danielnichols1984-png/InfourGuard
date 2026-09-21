@@ -5,17 +5,154 @@
 </head>
 <body>
     <h2>Create Account</h2>
+    <div id="error" style="color:red;"></div>
 
-    <form action="/auth/signup" method="post">
+    <form id="signup-form">
         <label>Email:</label><br>
         <input type="email" name="email" required><br><br>
 
         <label>Password:</label><br>
         <input type="password" name="password" required><br><br>
 
+        <h3>Choose your plan</h3>
+        <div id="plan-options">Loading&hellip;</div>
+
+        <div id="billing-fields" style="display:none; margin-top:10px;">
+            <p><label>Method:
+                <select name="method">
+                    <option value="cash">Pay with cash</option>
+                    <option value="card" disabled>Credit/debit card (coming soon)</option>
+                </select>
+            </label></p>
+            <p><input class="billing-required" name="billing_name" placeholder="Full name"></p>
+            <p><input class="billing-required" type="email" name="billing_email" placeholder="Billing email"></p>
+            <p><input name="billing_phone" placeholder="Phone (optional)"></p>
+            <p><input name="company_name" placeholder="Company name (optional)"></p>
+            <p><input class="billing-required" name="billing_address_line1" placeholder="Address line 1"></p>
+            <p><input name="billing_address_line2" placeholder="Address line 2 (optional)"></p>
+            <p><input class="billing-required" name="billing_city" placeholder="City"></p>
+            <p><input name="billing_state" placeholder="State/province"></p>
+            <p><input name="billing_zip" placeholder="ZIP/postal code"></p>
+            <p><input class="billing-required" name="billing_country" placeholder="Country"></p>
+            <p><textarea name="notes" placeholder="Notes (optional)"></textarea></p>
+            <p style="color:#666; font-size:13px;">
+                Your account is created right away on the Free plan; this plan
+                activates once an admin confirms your cash payment.
+            </p>
+        </div>
+
         <button type="submit">Create Account</button>
     </form>
 
     <p>Already have an account? <a href="/login">Login</a></p>
+
+    <script>
+        let plans = [];
+        let selectedPlanId = null;
+
+        function showError(msg) {
+            document.getElementById("error").textContent = msg || "";
+        }
+
+        async function loadPlans() {
+            const res = await fetch("/subscriptions/plans");
+            plans = await res.json();
+            const container = document.getElementById("plan-options");
+            container.innerHTML = plans
+                .map(
+                    (p) => `
+                        <label style="display:block; margin-bottom:6px;">
+                            <input type="radio" name="plan" value="${p.id}" ${p.is_default ? "checked" : ""}>
+                            ${p.display_name} — ${p.price_display}
+                        </label>
+                    `
+                )
+                .join("");
+            const defaultPlan = plans.find((p) => p.is_default);
+            selectedPlanId = defaultPlan ? defaultPlan.id : null;
+            toggleBillingFields();
+
+            container.querySelectorAll('input[name="plan"]').forEach((input) => {
+                input.addEventListener("change", (e) => {
+                    selectedPlanId = Number(e.target.value);
+                    toggleBillingFields();
+                });
+            });
+        }
+
+        function toggleBillingFields() {
+            const plan = plans.find((p) => p.id === selectedPlanId);
+            const needsBilling = plan && !plan.is_default;
+            document.getElementById("billing-fields").style.display = needsBilling ? "block" : "none";
+            document.querySelectorAll(".billing-required").forEach((input) => {
+                input.required = needsBilling;
+            });
+        }
+
+        async function postJson(path, body) {
+            const res = await fetch(path, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Accept: "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || `Request failed (${res.status})`);
+            }
+            return res.json();
+        }
+
+        document.getElementById("signup-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            showError("");
+            const form = new FormData(e.target);
+            const email = form.get("email");
+            const password = form.get("password");
+            const plan = plans.find((p) => p.id === selectedPlanId);
+
+            try {
+                await fetch("/auth/signup", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+                    body: new URLSearchParams({ email, password }),
+                }).then(async (res) => {
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data.detail || "Couldn't create account.");
+                    }
+                });
+
+                await fetch("/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+                    body: new URLSearchParams({ email, password }),
+                });
+
+                if (plan && !plan.is_default) {
+                    await postJson("/subscriptions/checkout", {
+                        plan_id: plan.id,
+                        method: form.get("method"),
+                        billing_name: form.get("billing_name"),
+                        billing_email: form.get("billing_email"),
+                        billing_phone: form.get("billing_phone") || undefined,
+                        company_name: form.get("company_name") || undefined,
+                        billing_address_line1: form.get("billing_address_line1"),
+                        billing_address_line2: form.get("billing_address_line2") || undefined,
+                        billing_city: form.get("billing_city"),
+                        billing_state: form.get("billing_state") || undefined,
+                        billing_zip: form.get("billing_zip") || undefined,
+                        billing_country: form.get("billing_country"),
+                        notes: form.get("notes") || undefined,
+                    });
+                }
+
+                window.location.href = "/dashboard";
+            } catch (err) {
+                showError(err.message);
+            }
+        });
+
+        loadPlans();
+    </script>
 </body>
 </html>

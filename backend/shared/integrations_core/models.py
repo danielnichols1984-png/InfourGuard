@@ -17,6 +17,12 @@ class UserIntegration(Base):
     access_token = Column(Text, nullable=True)
     refresh_token = Column(Text, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+    # Space-separated scopes actually granted at connect time (from the
+    # provider's own token response) — the ground truth for what this
+    # specific token can do. Never re-derive "what scope does this token
+    # have" from the host app's current config wishlist; that only reflects
+    # what we'd ask for today, not what a user already consented to.
+    scope = Column(Text, nullable=True)
 
     # Transient OAuth handshake state (CSRF token + PKCE verifier), cleared
     # once save_tokens() is called after a successful callback.

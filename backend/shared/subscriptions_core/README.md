@@ -1,12 +1,16 @@
 # subscriptions_core
 
 Plan tracking for a SaaS app: a `plans` table (Free/Pro/Team, editable) and
-which plan each user is on. **No payment processing** — switching plans is
-free and immediate. This is meant to let the data model and UI exist now,
-with a real processor (Stripe, etc.) wired in later without reshaping
-anything: `price_display` is just a string today; a real integration would
-add `stripe_price_id`/`stripe_customer_id` columns and a webhook handler
-alongside what's here.
+which plan each user is on. The default/free plan switches instantly with
+no payment step. Any other plan goes through a `Payment` record (`method`
+is `"cash"` today — a plain string, not an enum, so adding `"card"` later
+needs no migration) that starts `"pending"` and only actually changes the
+user's plan once a platform admin confirms it via the admin payments
+queue. This is meant to let the checkout UX and billing-details capture
+exist now, with a real processor (Stripe, etc.) wired in later without
+reshaping anything: a card integration would add its own `method` value,
+`stripe_price_id`/`stripe_customer_id` columns, and a webhook that calls
+`confirm_payment` automatically instead of an admin doing it by hand.
 
 ## Dependency on auth_core
 
@@ -52,7 +56,14 @@ dependency returning an object with `.id`/`.email`, and an "is admin" guard).
 - `GET /subscriptions/me` — current user's plan (defaults to whichever plan
   has `is_default=True` if they haven't chosen one).
 - `POST /subscriptions/me` — `{"plan_id": <id>}`, switches the current
-  user's plan immediately, no payment step.
+  user's plan immediately. Only accepts the default/free plan — 400s
+  otherwise, telling the caller to use `/checkout`.
+- `POST /subscriptions/checkout` — `{"plan_id", "method": "cash", ...billing
+  fields}` creates a `pending` payment for a non-default plan; the plan
+  does not change yet. `method` values other than `"cash"` 400 with "not
+  yet available."
+- `GET /subscriptions/me/orders` — the caller's own payment history, so
+  the UI can show "pending confirmation" instead of a switch button.
 
 Admin-only (require `auth_core`'s `require_admin`, i.e. `User.is_admin`):
 
@@ -64,7 +75,15 @@ Admin-only (require `auth_core`'s `require_admin`, i.e. `User.is_admin`):
   (400) if any user is currently on it.
 - `GET /subscriptions/admin/users` — every user with their current plan.
 - `PUT /subscriptions/admin/users/{user_id}/plan` — `{"plan_id": <id>}`,
-  force-sets a specific user's plan (comping, manual downgrades, etc).
+  force-sets a specific user's plan (comping, manual downgrades, etc) —
+  instant, no payment involved; a separate, already-working override, not
+  gated by the checkout flow below.
+- `GET /subscriptions/admin/payments?status=pending` — the payment queue
+  (any `status` filter, or omit for all).
+- `POST /subscriptions/admin/payments/{id}/confirm` — marks a payment
+  confirmed and actually activates the plan it was for.
+- `POST /subscriptions/admin/payments/{id}/reject` — marks it rejected;
+  the user's plan is untouched.
 
 There's no endpoint to grant admin rights — see `auth_core`'s README for
 `make_admin`.

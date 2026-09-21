@@ -5,22 +5,30 @@ from shared.auth_core.db import get_db as get_auth_db
 from shared.auth_core.dependencies import get_current_user, require_admin
 from shared.auth_core.models import User as AuthUser
 from shared.subscriptions_core.db import get_db
-from shared.subscriptions_core.models import Plan
+from shared.subscriptions_core.models import Payment, Plan
 from shared.subscriptions_core.schemas import (
+    AdminPaymentResponse,
     AdminSetUserPlanRequest,
     AdminUserPlanResponse,
     ChangePlanRequest,
+    CheckoutRequest,
+    PaymentResponse,
     PlanCreate,
     PlanResponse,
     PlanUpdate,
     SubscriptionResponse,
 )
 from shared.subscriptions_core.service import (
+    confirm_payment,
+    create_payment,
     create_plan,
     delete_plan,
     get_user_plan,
+    list_payments,
     list_plans,
+    list_user_payments,
     list_user_plans,
+    reject_payment,
     set_user_plan,
     update_plan,
 )
@@ -50,9 +58,43 @@ def change_my_plan(
     plan = db.query(Plan).filter(Plan.id == body.plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    if not plan.is_default:
+        raise HTTPException(
+            status_code=400, detail="This plan requires checkout — use POST /subscriptions/checkout"
+        )
 
     set_user_plan(db, user.id, plan.id)
     return SubscriptionResponse(plan=plan)
+
+
+# --- Checkout (cash today; a real gateway slots in alongside this later) ---
+
+
+@router.post("/checkout", response_model=PaymentResponse)
+def checkout(
+    body: CheckoutRequest,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if body.method != "cash":
+        raise HTTPException(status_code=400, detail="That payment method isn't available yet")
+
+    plan = db.query(Plan).filter(Plan.id == body.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if plan.is_default:
+        raise HTTPException(
+            status_code=400, detail="This plan is free — switch to it directly via POST /subscriptions/me"
+        )
+
+    billing = body.model_dump(exclude={"plan_id", "method"})
+    payment = create_payment(db, user.id, plan.id, billing)
+    return payment
+
+
+@router.get("/me/orders", response_model=list[PaymentResponse])
+def get_my_orders(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return list_user_payments(db, user.id)
 
 
 # --- Admin: manage plan definitions ---------------------------------------
@@ -129,3 +171,53 @@ def admin_set_user_plan(
 
     set_user_plan(db, user_id, plan.id)
     return AdminUserPlanResponse(user_id=user.id, email=user.email, plan=plan)
+
+
+# --- Admin: pending cash payments -------------------------------------------
+
+
+@router.get("/admin/payments", response_model=list[AdminPaymentResponse])
+def admin_list_payments(
+    status: str | None = None,
+    admin: AuthUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+    auth_db: Session = Depends(get_auth_db),
+):
+    payments = list_payments(db, status=status)
+    emails = {
+        u.id: u.email
+        for u in auth_db.query(AuthUser).filter(AuthUser.id.in_([p.user_id for p in payments])).all()
+    }
+    plans_by_id = {p.id: p for p in list_plans(db)}
+    return [
+        AdminPaymentResponse(
+            **PaymentResponse.model_validate(p).model_dump(),
+            email=emails.get(p.user_id, "?"),
+            plan=plans_by_id[p.plan_id],
+        )
+        for p in payments
+    ]
+
+
+@router.post("/admin/payments/{payment_id}/confirm", response_model=PaymentResponse)
+def admin_confirm_payment(
+    payment_id: int, admin: AuthUser = Depends(require_admin), db: Session = Depends(get_db)
+):
+    payment = db.query(Payment).filter(Payment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if payment.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Payment is already {payment.status}")
+    return confirm_payment(db, payment, admin.id)
+
+
+@router.post("/admin/payments/{payment_id}/reject", response_model=PaymentResponse)
+def admin_reject_payment(
+    payment_id: int, admin: AuthUser = Depends(require_admin), db: Session = Depends(get_db)
+):
+    payment = db.query(Payment).filter(Payment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if payment.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Payment is already {payment.status}")
+    return reject_payment(db, payment, admin.id)

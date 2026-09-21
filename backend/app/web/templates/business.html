@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Business</title>
+</head>
+<body>
+    <h2 id="business-name">My Business</h2>
+    <p><a href="/dashboard">Back to dashboard</a></p>
+    <div id="error" style="color:red;"></div>
+
+    <table border="1" cellpadding="6" id="members-table">
+        <thead>
+            <tr><th>Email</th><th>Role</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <div id="admin-tools" style="display:none; margin-top:20px;">
+        <h4>Add a member</h4>
+        <form id="new-member-form">
+            <input type="email" name="email" placeholder="email@example.com" required>
+            <input type="password" name="password" placeholder="Temporary password" required>
+            <button type="submit">Add member</button>
+        </form>
+    </div>
+
+    <script>
+        let me = null;
+        let isBusinessAdmin = false;
+
+        function showError(msg) {
+            document.getElementById("error").textContent = msg || "";
+        }
+
+        async function api(path, options) {
+            const res = await fetch(path, {
+                headers: { "Content-Type": "application/json" },
+                ...options,
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || `Request failed (${res.status})`);
+            }
+            return res.status === 204 ? null : res.json();
+        }
+
+        async function load() {
+            me = await api("/auth/me");
+            const business = await api("/businesses/my-business");
+            document.getElementById("business-name").textContent = business.name;
+
+            const myMembership = business.members.find((m) => m.user_id === me.id);
+            isBusinessAdmin = myMembership && myMembership.role === "business_admin";
+            document.getElementById("admin-tools").style.display = isBusinessAdmin ? "block" : "none";
+
+            const tbody = document.querySelector("#members-table tbody");
+            tbody.innerHTML = "";
+            business.members.forEach((m) => {
+                const isSelf = m.user_id === me.id;
+                const tr = document.createElement("tr");
+                const actions = isBusinessAdmin && !isSelf
+                    ? `
+                        <button data-view-as="${m.user_id}">View as</button>
+                        <button data-reset="${m.user_id}">Reset password</button>
+                        <button data-email-google="${m.user_id}">Email Google report</button>
+                        <button data-email-dropbox="${m.user_id}">Email Dropbox report</button>
+                        <button data-email-microsoft="${m.user_id}">Email OneDrive report</button>
+                        <button data-remove="${m.user_id}">Remove</button>
+                    `
+                    : "";
+                tr.innerHTML = `<td>${m.email}</td><td>${m.role}</td><td>${actions}</td>`;
+                if (isBusinessAdmin && !isSelf) {
+                    tr.querySelector("[data-view-as]").onclick = () => viewAs(m.user_id);
+                    tr.querySelector("[data-reset]").onclick = () => resetPassword(m.user_id, m.email);
+                    tr.querySelector("[data-email-google]").onclick = () => emailReport(m.user_id, "google", m.email);
+                    tr.querySelector("[data-email-dropbox]").onclick = () => emailReport(m.user_id, "dropbox", m.email);
+                    tr.querySelector("[data-email-microsoft]").onclick = () => emailReport(m.user_id, "microsoft", m.email);
+                    tr.querySelector("[data-remove]").onclick = () => removeMember(m.user_id);
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function viewAs(userId) {
+            showError("");
+            try {
+                await api(`/businesses/my-business/members/${userId}/impersonate`, { method: "POST" });
+                window.location.href = "/dashboard";
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function resetPassword(userId, email) {
+            const newPassword = prompt(`New password for ${email}:`);
+            if (!newPassword) return;
+            showError("");
+            try {
+                await api(`/businesses/my-business/members/${userId}/password`, {
+                    method: "PUT",
+                    body: JSON.stringify({ new_password: newPassword }),
+                });
+                alert("Password updated.");
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function emailReport(userId, provider, defaultEmail) {
+            const email = prompt(`Send this member's ${provider} report to:`, defaultEmail);
+            if (!email) return;
+            showError("");
+            try {
+                const result = await api(`/businesses/my-business/members/${userId}/reports/${provider}/email`, {
+                    method: "POST",
+                    body: JSON.stringify({ email }),
+                });
+                alert(result.sent ? "Report sent." : "Couldn't send — check email settings.");
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function removeMember(userId) {
+            if (!confirm("Remove this member from the business?")) return;
+            showError("");
+            try {
+                await api(`/businesses/my-business/members/${userId}`, { method: "DELETE" });
+                await load();
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        document.getElementById("new-member-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            showError("");
+            const form = new FormData(e.target);
+            try {
+                await api("/businesses/my-business/members", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        email: form.get("email"),
+                        password: form.get("password"),
+                    }),
+                });
+                e.target.reset();
+                await load();
+            } catch (err) {
+                showError(err.message);
+            }
+        });
+
+        load();
+    </script>
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

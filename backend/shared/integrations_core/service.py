@@ -43,6 +43,7 @@ def save_tokens(
     access_token: str | None,
     refresh_token: str | None = None,
     expires_at: datetime | None = None,
+    scope: str | None = None,
 ) -> UserIntegration:
     record = _get_or_create_record(db, user_id, provider)
     if access_token is not None:
@@ -51,6 +52,8 @@ def save_tokens(
         record.refresh_token = refresh_token
     if expires_at is not None:
         record.expires_at = expires_at
+    if scope is not None:
+        record.scope = scope
     # The handshake is done once real tokens are in hand.
     record.oauth_state = None
     record.code_verifier = None

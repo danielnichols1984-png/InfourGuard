@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class PlanResponse(BaseModel):
@@ -43,3 +45,47 @@ class AdminUserPlanResponse(BaseModel):
 
 class AdminSetUserPlanRequest(BaseModel):
     plan_id: int
+
+
+class CheckoutRequest(BaseModel):
+    plan_id: int
+    method: str  # only "cash" is accepted today
+    billing_name: str
+    billing_email: EmailStr
+    billing_phone: str | None = None
+    billing_address_line1: str
+    billing_address_line2: str | None = None
+    billing_city: str
+    billing_state: str | None = None
+    billing_zip: str | None = None
+    billing_country: str
+    company_name: str | None = None
+    notes: str | None = None
+
+
+class PaymentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    plan_id: int
+    method: str
+    status: str
+    billing_name: str
+    billing_email: str
+    billing_phone: str | None
+    billing_address_line1: str
+    billing_address_line2: str | None
+    billing_city: str
+    billing_state: str | None
+    billing_zip: str | None
+    billing_country: str
+    company_name: str | None
+    notes: str | None
+    created_at: datetime | None
+    confirmed_at: datetime | None
+
+
+class AdminPaymentResponse(PaymentResponse):
+    email: str
+    plan: PlanResponse

@@ -10,19 +10,52 @@
     <div id="error" style="color:red;"></div>
     <div id="plans"></div>
 
+    <div id="checkout-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4);">
+        <div style="background:#fff; max-width:420px; margin:40px auto; padding:20px; border-radius:8px;">
+            <h3>Checkout — <span id="checkout-plan-name"></span></h3>
+            <form id="checkout-form">
+                <p><label>Method:
+                    <select name="method">
+                        <option value="cash">Pay with cash</option>
+                        <option value="card" disabled>Credit/debit card (coming soon)</option>
+                    </select>
+                </label></p>
+                <p><input name="billing_name" placeholder="Full name" required></p>
+                <p><input type="email" name="billing_email" placeholder="Billing email" required></p>
+                <p><input name="billing_phone" placeholder="Phone (optional)"></p>
+                <p><input name="company_name" placeholder="Company name (optional)"></p>
+                <p><input name="billing_address_line1" placeholder="Address line 1" required></p>
+                <p><input name="billing_address_line2" placeholder="Address line 2 (optional)"></p>
+                <p><input name="billing_city" placeholder="City" required></p>
+                <p><input name="billing_state" placeholder="State/province"></p>
+                <p><input name="billing_zip" placeholder="ZIP/postal code"></p>
+                <p><input name="billing_country" placeholder="Country" required></p>
+                <p><textarea name="notes" placeholder="Notes (optional)"></textarea></p>
+                <button type="submit">Submit order</button>
+                <button type="button" id="checkout-cancel">Cancel</button>
+            </form>
+        </div>
+    </div>
+
     <script>
+        let checkoutPlanId = null;
+
         async function load() {
-            const [plansRes, meRes] = await Promise.all([
+            const [plansRes, meRes, ordersRes] = await Promise.all([
                 fetch("/subscriptions/plans"),
                 fetch("/subscriptions/me"),
+                fetch("/subscriptions/me/orders"),
             ]);
             const plans = await plansRes.json();
             const me = await meRes.json();
+            const orders = await ordersRes.json();
+            const pendingPlanIds = new Set(orders.filter((o) => o.status === "pending").map((o) => o.plan_id));
 
             const container = document.getElementById("plans");
             container.innerHTML = "";
             plans.forEach((plan) => {
                 const isCurrent = plan.id === me.plan.id;
+                const isPending = pendingPlanIds.has(plan.id);
                 const div = document.createElement("div");
                 div.style.border = "1px solid #ccc";
                 div.style.padding = "12px";
@@ -33,16 +66,33 @@
                     <ul>${plan.features.map((f) => `<li>${f}</li>`).join("")}</ul>
                 `;
                 const button = document.createElement("button");
-                button.textContent = isCurrent ? "Current plan" : "Switch to this plan";
-                button.disabled = isCurrent;
-                button.onclick = () => switchPlan(plan.id);
+                if (isCurrent) {
+                    button.textContent = "Current plan";
+                    button.disabled = true;
+                } else if (isPending) {
+                    button.textContent = "Pending confirmation";
+                    button.disabled = true;
+                } else {
+                    button.textContent = "Switch to this plan";
+                    button.onclick = () => switchPlan(plan);
+                }
                 div.appendChild(button);
                 container.appendChild(div);
             });
         }
 
-        async function switchPlan(planId) {
+        function switchPlan(plan) {
             document.getElementById("error").textContent = "";
+            if (plan.is_default) {
+                switchToFreePlan(plan.id);
+                return;
+            }
+            checkoutPlanId = plan.id;
+            document.getElementById("checkout-plan-name").textContent = plan.display_name;
+            document.getElementById("checkout-modal").style.display = "block";
+        }
+
+        async function switchToFreePlan(planId) {
             const res = await fetch("/subscriptions/me", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -55,7 +105,40 @@
             load();
         }
 
+        document.getElementById("checkout-cancel").addEventListener("click", () => {
+            document.getElementById("checkout-modal").style.display = "none";
+        });
+
+        document.getElementById("checkout-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            document.getElementById("error").textContent = "";
+            const form = new FormData(e.target);
+            const body = { plan_id: checkoutPlanId, method: form.get("method") };
+            for (const key of [
+                "billing_name", "billing_email", "billing_phone", "company_name",
+                "billing_address_line1", "billing_address_line2", "billing_city",
+                "billing_state", "billing_zip", "billing_country", "notes",
+            ]) {
+                const value = form.get(key);
+                if (value) body[key] = value;
+            }
+            const res = await fetch("/subscriptions/checkout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                document.getElementById("error").textContent = data.detail || "Couldn't submit order.";
+                return;
+            }
+            document.getElementById("checkout-modal").style.display = "none";
+            e.target.reset();
+            load();
+        });
+
         load();
     </script>
+    <script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

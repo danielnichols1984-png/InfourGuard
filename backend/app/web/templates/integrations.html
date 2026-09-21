@@ -18,14 +18,25 @@
         <div id="dropbox-status">Loading…</div>
     </section>
 
+    <section>
+        <h3>Microsoft OneDrive</h3>
+        <div id="microsoft-status">Loading…</div>
+    </section>
+
     <script>
+        const REPORT_LINKS = {
+            google: "/google/report",
+            dropbox: "/dropbox/report",
+            microsoft: "/microsoft/report",
+        };
+
         function showError(msg) {
             document.getElementById("error").textContent = msg || "";
         }
 
         function renderProvider(provider, connected) {
             const statusDiv = document.getElementById(`${provider}-status`);
-            const reportLink = provider === "google" ? "/google/report" : "/dropbox/report";
+            const reportLink = REPORT_LINKS[provider];
             statusDiv.innerHTML = connected
                 ? `<a href="${reportLink}">View report</a> &middot; <button onclick="disconnect('${provider}')">Disconnect</button>`
                 : `<a href="/connect/${provider}"><button>Connect</button></a>`;
@@ -42,6 +53,7 @@
             const byProvider = Object.fromEntries(statuses.map((s) => [s.provider, s.connected]));
             renderProvider("google", byProvider.google);
             renderProvider("dropbox", byProvider.dropbox);
+            renderProvider("microsoft", byProvider.microsoft);
         }
 
         async function disconnect(provider) {
@@ -56,5 +68,6 @@
 
         loadStatus();
     </script>
+    <script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

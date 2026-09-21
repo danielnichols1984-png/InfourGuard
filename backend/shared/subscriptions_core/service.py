@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
-from shared.subscriptions_core.models import Plan, UserSubscription
+from shared.subscriptions_core.models import Payment, Plan, UserSubscription
 
 # Starter plans, inserted once into an empty `plans` table by seed_default_plans.
 # Edit this list to match your own product — it only ever runs on a fresh DB.
@@ -122,6 +124,49 @@ def delete_plan(db: Session, plan_id: int) -> str | None:
     db.delete(plan)
     db.commit()
     return None
+
+
+def create_payment(db: Session, user_id: int, plan_id: int, billing: dict) -> Payment:
+    payment = Payment(user_id=user_id, plan_id=plan_id, method="cash", status="pending", **billing)
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
+def list_user_payments(db: Session, user_id: int) -> list[Payment]:
+    return (
+        db.query(Payment)
+        .filter(Payment.user_id == user_id)
+        .order_by(Payment.id.desc())
+        .all()
+    )
+
+
+def list_payments(db: Session, status: str | None = None) -> list[Payment]:
+    query = db.query(Payment)
+    if status:
+        query = query.filter(Payment.status == status)
+    return query.order_by(Payment.id.desc()).all()
+
+
+def confirm_payment(db: Session, payment: Payment, admin_id: int) -> Payment:
+    payment.status = "confirmed"
+    payment.confirmed_at = datetime.now(timezone.utc)
+    payment.confirmed_by_admin_id = admin_id
+    db.commit()
+    set_user_plan(db, payment.user_id, payment.plan_id)
+    db.refresh(payment)
+    return payment
+
+
+def reject_payment(db: Session, payment: Payment, admin_id: int) -> Payment:
+    payment.status = "rejected"
+    payment.confirmed_at = datetime.now(timezone.utc)
+    payment.confirmed_by_admin_id = admin_id
+    db.commit()
+    db.refresh(payment)
+    return payment
 
 
 def list_user_plans(users, db: Session) -> list[dict]:

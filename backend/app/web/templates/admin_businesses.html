@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin: Business Accounts</title>
+</head>
+<body>
+    <h2>Admin: Business Accounts</h2>
+    <p><a href="/dashboard">Back to dashboard</a> &middot; <a href="/admin/users">Individual Users</a></p>
+    <div id="error" style="color:red;"></div>
+
+    <h3>Businesses</h3>
+    <table border="1" cellpadding="6" id="businesses-table">
+        <thead>
+            <tr><th>ID</th><th>Name</th><th>Members</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <h4>Create a business</h4>
+    <form id="new-business-form">
+        <input name="name" placeholder="Business name" required>
+        <input type="email" name="admin_email" placeholder="Business admin's email (must already have an account)" required>
+        <button type="submit">Create business</button>
+    </form>
+
+    <div id="detail" style="margin-top:20px;"></div>
+
+    <script>
+        function showError(msg) {
+            document.getElementById("error").textContent = msg || "";
+        }
+
+        async function api(path, options) {
+            const res = await fetch(path, {
+                headers: { "Content-Type": "application/json" },
+                ...options,
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || `Request failed (${res.status})`);
+            }
+            return res.status === 204 ? null : res.json();
+        }
+
+        async function loadBusinesses() {
+            const businesses = await api("/businesses/admin/businesses");
+            const tbody = document.querySelector("#businesses-table tbody");
+            tbody.innerHTML = "";
+            businesses.forEach((b) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${b.id}</td>
+                    <td>${b.name}</td>
+                    <td>${b.member_count}</td>
+                    <td>
+                        <button data-view="${b.id}">View members</button>
+                        <button data-delete="${b.id}">Delete</button>
+                    </td>
+                `;
+                tr.querySelector("[data-view]").onclick = () => viewMembers(b.id, b.name);
+                tr.querySelector("[data-delete]").onclick = () => deleteBusiness(b.id);
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function viewMembers(businessId, name) {
+            showError("");
+            const detail = document.getElementById("detail");
+            try {
+                const members = await api(`/businesses/admin/businesses/${businessId}/members`);
+                detail.innerHTML = `
+                    <h3>${name} — members</h3>
+                    <table border="1" cellpadding="6">
+                        <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+                        <tbody>
+                            ${members.map((m) => `
+                                <tr>
+                                    <td>${m.email}</td>
+                                    <td>${m.role}</td>
+                                    <td>
+                                        <button data-tenant-report="${m.user_id}" data-email="${m.email}">Email tenant report</button>
+                                    </td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                `;
+                detail.querySelectorAll("[data-tenant-report]").forEach((btn) => {
+                    btn.onclick = () => emailTenantReport(btn.dataset.tenantReport, btn.dataset.email);
+                });
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function emailTenantReport(userId, defaultEmail) {
+            const provider = prompt(
+                "Which tenant connection? (google-workspace, microsoft365, dropbox-business)",
+                "google-workspace"
+            );
+            if (!provider) return;
+            const email = prompt("Send the report to:", defaultEmail);
+            if (!email) return;
+            showError("");
+            try {
+                const result = await api(`/tenants/admin/users/${userId}/${provider}/report/email`, {
+                    method: "POST",
+                    body: JSON.stringify({ email }),
+                });
+                alert(result.sent ? "Report sent." : "Couldn't send — check email settings or that this member has a tenant connected.");
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function deleteBusiness(businessId) {
+            if (!confirm(`Delete business #${businessId}? This can't be undone.`)) return;
+            showError("");
+            try {
+                await api(`/businesses/admin/businesses/${businessId}`, { method: "DELETE" });
+                document.getElementById("detail").innerHTML = "";
+                await loadBusinesses();
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        document.getElementById("new-business-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            showError("");
+            const form = new FormData(e.target);
+            try {
+                await api("/businesses/admin/businesses", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        name: form.get("name"),
+                        admin_email: form.get("admin_email"),
+                    }),
+                });
+                e.target.reset();
+                await loadBusinesses();
+            } catch (err) {
+                showError(err.message);
+            }
+        });
+
+        loadBusinesses();
+    </script>
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

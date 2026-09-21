@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dropbox Business Organization Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/tenant_report.css">
+    <style>
+        :root { --primary: #0061ff; --primary-dark: #0050d4; --primary-light: #f0f5ff; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="top-nav">
+        <div class="brand-section">
+            <div class="logo-icon">🏢</div>
+            <div class="brand-info">
+                <h1>Dropbox Business</h1>
+                <p>{% if connected and tenant_name %}Organization admin for <strong>{{ tenant_name }}</strong>{% else %}Organization-wide admin metrics{% endif %}</p>
+            </div>
+        </div>
+        <div class="nav-actions">
+            {% if connected %}
+            <a href="/tenants/dropbox-business" class="btn btn-outline" title="Switch account or refresh permissions">🔄 Switch Account</a>
+            <form action="/organization/dropbox-business/disconnect" method="post" class="inline-form">
+                <button type="submit" class="btn btn-danger">Disconnect</button>
+            </form>
+            {% else %}
+            <a href="/tenants/dropbox-business" class="btn btn-primary">Connect Dropbox Business</a>
+            {% endif %}
+            <a href="/organization/google-workspace" class="btn btn-outline">Google Workspace</a>
+            <a href="/organization/microsoft365" class="btn btn-outline">Microsoft 365</a>
+            <a href="/tenants" class="btn btn-outline">Organization Admin</a>
+            <a href="/dashboard" class="btn btn-outline">Home</a>
+        </div>
+    </div>
+
+    {% if success %}<div class="alert alert-success"><span>✅</span><div>{{ success }}</div></div>{% endif %}
+    {% if error %}<div class="alert alert-error"><span>⚠️</span><div><strong>Error:</strong> {{ error }}</div></div>{% endif %}
+
+    {% if not connected %}
+    <div class="card empty-placeholder">
+        <h3>Dropbox Business Not Connected</h3>
+        <p style="margin-bottom: 20px;">Connect your team's admin account to see tenant-wide member and storage metrics.</p>
+        <a href="/tenants/dropbox-business" class="btn btn-primary" style="padding: 12px 24px; font-size: 15px;">Connect Dropbox Business Now</a>
+    </div>
+    {% else %}
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Total Users</span><span class="stat-icon" style="background: var(--primary-light); color: var(--primary);">👥</span></div>
+            <div class="stat-value">{{ total_users if total_users is not none else "-" }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Storage Used</span><span class="stat-icon" style="background: var(--info-bg); color: var(--info);">💾</span></div>
+            <div class="stat-value">{{ storage_used or "-" }}</div>
+            <div class="stat-subtext">of {{ storage_total or "Unknown" }}{% if storage_percent is not none %} ({{ storage_percent }}%){% endif %}</div>
+            {% if storage_percent is not none %}
+            <div class="progress-bar-container"><div class="progress-bar-fill" style="width: {{ storage_percent }}%;"></div></div>
+            {% endif %}
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-header"><span class="stat-label">Team</span><span class="stat-icon" style="background: var(--success-bg); color: var(--success);">🏷️</span></div>
+            <div class="stat-value" style="font-size: 16px;">{{ tenant_name or "-" }}</div>
+        </div>
+    </div>
+
+    {% if external_sharing_note %}<div class="alert alert-info">{{ external_sharing_note }}</div>{% endif %}
+    {% if warnings %}{% for w in warnings %}<div class="alert alert-warning">{{ w }}</div>{% endfor %}{% endif %}
+
+    <div class="card">
+        <div class="card-title">📧 Email This Report</div>
+        <form action="/organization/dropbox-business/email_report" method="post" class="email-form">
+            <input type="email" name="email" placeholder="Enter recipient email address" required>
+            <button type="submit" class="btn btn-primary">Send Report</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

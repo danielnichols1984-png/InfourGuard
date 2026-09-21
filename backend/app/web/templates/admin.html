@@ -4,8 +4,8 @@
     <title>Admin</title>
 </head>
 <body>
-    <h2>Admin</h2>
-    <p><a href="/dashboard">Back to dashboard</a></p>
+    <h2>Admin: Plans</h2>
+    <p><a href="/dashboard">Back to dashboard</a> &middot; <a href="/admin/users">Manage users</a></p>
     <div id="error" style="color:red;"></div>
 
     <h3>Plans</h3>
@@ -15,6 +15,7 @@
         </thead>
         <tbody></tbody>
     </table>
+    <p style="color:#666; font-size:13px;">Edit any field below, then click Save on that row.</p>
 
     <h4>Add a plan</h4>
     <form id="new-plan-form">
@@ -29,6 +30,14 @@
     <h3>Users</h3>
     <table border="1" cellpadding="6" id="users-table">
         <thead><tr><th>Email</th><th>Plan</th></tr></thead>
+        <tbody></tbody>
+    </table>
+
+    <h3>Pending Payments</h3>
+    <table border="1" cellpadding="6" id="payments-table">
+        <thead>
+            <tr><th>Email</th><th>Plan</th><th>Method</th><th>Billing name</th><th>Submitted</th><th></th></tr>
+        </thead>
         <tbody></tbody>
     </table>
 
@@ -52,13 +61,17 @@
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                     <td>${plan.name}</td>
-                    <td>${plan.display_name}</td>
-                    <td>${plan.price_display}</td>
-                    <td>${plan.features.join(", ")}</td>
-                    <td>${plan.is_default ? "Yes" : ""}</td>
-                    <td><button data-id="${plan.id}">Delete</button></td>
+                    <td><input data-field="display_name" value="${plan.display_name}"></td>
+                    <td><input data-field="price_display" value="${plan.price_display}"></td>
+                    <td><input data-field="features" value="${plan.features.join(", ")}" size="30"></td>
+                    <td><input type="checkbox" data-field="is_default" ${plan.is_default ? "checked" : ""}></td>
+                    <td>
+                        <button data-save="${plan.id}">Save</button>
+                        <button data-delete="${plan.id}">Delete</button>
+                    </td>
                 `;
-                tr.querySelector("button").onclick = () => deletePlan(plan.id);
+                tr.querySelector("[data-save]").onclick = () => savePlan(plan.id, tr);
+                tr.querySelector("[data-delete]").onclick = () => deletePlan(plan.id);
                 tbody.appendChild(tr);
             });
         }
@@ -113,6 +126,28 @@
             await loadUsers();
         }
 
+        async function savePlan(planId, tr) {
+            showError("");
+            const body = {
+                display_name: tr.querySelector('[data-field="display_name"]').value,
+                price_display: tr.querySelector('[data-field="price_display"]').value,
+                features: featuresToList(tr.querySelector('[data-field="features"]').value),
+                is_default: tr.querySelector('[data-field="is_default"]').checked,
+            };
+            const res = await fetch(`/subscriptions/admin/plans/${planId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                showError(data.detail || "Couldn't save plan.");
+                return;
+            }
+            await loadPlans();
+            await loadUsers();
+        }
+
         async function deletePlan(planId) {
             showError("");
             const res = await fetch(`/subscriptions/admin/plans/${planId}`, { method: "DELETE" });
@@ -122,6 +157,44 @@
                 return;
             }
             await loadPlans();
+            await loadUsers();
+        }
+
+        async function loadPayments() {
+            const res = await fetch("/subscriptions/admin/payments?status=pending");
+            if (!res.ok) return;
+            const payments = await res.json();
+            const tbody = document.querySelector("#payments-table tbody");
+            tbody.innerHTML = "";
+            payments.forEach((p) => {
+                const tr = document.createElement("tr");
+                const submitted = p.created_at ? new Date(p.created_at).toLocaleString() : "-";
+                tr.innerHTML = `
+                    <td>${p.email}</td>
+                    <td>${p.plan.display_name}</td>
+                    <td>${p.method}</td>
+                    <td>${p.billing_name}</td>
+                    <td>${submitted}</td>
+                    <td>
+                        <button data-confirm="${p.id}">Confirm</button>
+                        <button data-reject="${p.id}">Reject</button>
+                    </td>
+                `;
+                tr.querySelector("[data-confirm]").onclick = () => resolvePayment(p.id, "confirm");
+                tr.querySelector("[data-reject]").onclick = () => resolvePayment(p.id, "reject");
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function resolvePayment(paymentId, action) {
+            showError("");
+            const res = await fetch(`/subscriptions/admin/payments/${paymentId}/${action}`, { method: "POST" });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                showError(data.detail || `Couldn't ${action} payment.`);
+                return;
+            }
+            await loadPayments();
             await loadUsers();
         }
 
@@ -144,7 +217,9 @@
         (async () => {
             await loadPlans();
             await loadUsers();
+            await loadPayments();
         })();
     </script>
+    <script src="/static/js/impersonation-banner.js"></script>
 </body>
 </html>

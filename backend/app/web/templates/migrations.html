@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Migrations</title>
+    <style>
+        body { font-family: sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 12px; }
+        th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; font-size: 14px; }
+        th { background: #f4f4f4; }
+        section { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
+        input, select, button { padding: 5px 8px; margin: 2px 4px 2px 0; }
+        .error { color: #b00020; }
+        .muted { color: #666; font-size: 13px; }
+        #job-detail { border: 1px solid #ccc; padding: 16px; border-radius: 8px; }
+        pre { background: #111; color: #eee; padding: 12px; overflow-x: auto; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h2>Migrations</h2>
+    <p><a href="/dashboard">Back to dashboard</a></p>
+    <div id="error" class="error"></div>
+
+    <section>
+        <h3>New migration job</h3>
+        <form id="new-job-form">
+            <label>Source
+                <select name="source_provider">
+                    <option value="dropbox">Dropbox</option>
+                    <option value="google">Google Drive</option>
+                    <option value="microsoft">Microsoft OneDrive</option>
+                </select>
+            </label>
+            <label>Destination
+                <select name="destination_provider">
+                    <option value="google">Google Drive</option>
+                    <option value="dropbox">Dropbox</option>
+                    <option value="microsoft">Microsoft OneDrive</option>
+                </select>
+            </label>
+            <label>Notify email (optional)
+                <input type="email" name="notify_email" placeholder="you@example.com">
+            </label>
+            <button type="submit">Create job</button>
+        </form>
+    </section>
+
+    <section>
+        <h3>Jobs</h3>
+        <table id="jobs-table">
+            <thead>
+                <tr><th>#</th><th>Route</th><th>Status</th><th>Scheduled</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <section id="job-detail-section" style="display:none;">
+        <div id="job-detail"></div>
+    </section>
+
+    <script>
+        let me = null;
+        let selectedJobId = null;
+
+        function showError(msg) { document.getElementById("error").textContent = msg || ""; }
+
+        async function api(path, options) {
+            const res = await fetch(path, {
+                headers: { "Content-Type": "application/json" },
+                ...options,
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || `Request failed (${res.status})`);
+            }
+            return res.status === 204 ? null : res.json();
+        }
+
+        async function loadMe() {
+            me = await api("/auth/me");
+        }
+
+        const UNDELETABLE_STATUSES = new Set(["running", "completed", "completed_with_errors", "archived"]);
+
+        async function loadJobs() {
+            const jobs = await api("/migrations/jobs");
+            const tbody = document.querySelector("#jobs-table tbody");
+            tbody.innerHTML = "";
+            jobs.forEach((job) => {
+                const canDelete = !UNDELETABLE_STATUSES.has(job.status);
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${job.id}</td>
+                    <td>${job.source_provider} &rarr; ${job.destination_provider}</td>
+                    <td>${job.status}</td>
+                    <td>${job.scheduled_at ? new Date(job.scheduled_at).toLocaleString() : "-"}</td>
+                    <td>
+                        <button data-manage="${job.id}">Manage</button>
+                        ${canDelete ? `<button data-delete="${job.id}">Delete</button>` : ""}
+                    </td>
+                `;
+                tr.querySelector("[data-manage]").onclick = () => selectJob(job.id);
+                const deleteBtn = tr.querySelector("[data-delete]");
+                if (deleteBtn) deleteBtn.onclick = () => deleteJob(job.id);
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function deleteJob(jobId) {
+            if (!confirm(`Delete job #${jobId}? This can't be undone.`)) return;
+            showError("");
+            try {
+                await api(`/migrations/jobs/${jobId}`, { method: "DELETE" });
+                if (selectedJobId === jobId) {
+                    selectedJobId = null;
+                    document.getElementById("job-detail-section").style.display = "none";
+                }
+                await loadJobs();
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function selectJob(jobId) {
+            selectedJobId = jobId;
+            document.getElementById("job-detail-section").style.display = "block";
+            await renderJobDetail();
+        }
+
+        async function renderJobDetail() {
+            showError("");
+            let job, mappings;
+            try {
+                job = await api(`/migrations/jobs/${selectedJobId}`);
+                mappings = await api(`/migrations/jobs/${selectedJobId}/mappings`);
+            } catch (e) {
+                showError(e.message);
+                return;
+            }
+
+            const detail = document.getElementById("job-detail");
+            detail.innerHTML = `
+                <h4>Job #${job.id}: ${job.source_provider} &rarr; ${job.destination_provider}</h4>
+                <p>Status: <strong>${job.status}</strong>
+                   ${job.scheduled_at ? ` &mdash; scheduled for ${new Date(job.scheduled_at).toLocaleString()}` : ""}
+                </p>
+
+                <h5>User mappings</h5>
+                <table id="mappings-table">
+                    <thead>
+                        <tr><th>Source user</th><th>Dest user</th><th>Source root</th><th>Dest root</th><th>Status</th><th>Stats</th><th></th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+
+                ${job.status === "draft" || job.status === "mapped" ? `
+                <form id="add-mapping-form">
+                    <input type="number" name="source_user_id" placeholder="Source user id" value="${me.id}" required>
+                    <input type="number" name="destination_user_id" placeholder="Destination user id" value="${me.id}" required>
+                    <input type="text" name="source_root_path" placeholder="Source folder (blank = everything)">
+                    <input type="text" name="destination_root_path" placeholder="Destination folder">
+                    <button type="submit">Add mapping</button>
+                </form>
+                <p class="muted">${me.is_admin ? "As an admin, you can map any two users." : "You can only map yourself — migrating your own connected accounts."}</p>
+                ` : ""}
+
+                <div id="job-actions"></div>
+                <div id="job-report"></div>
+            `;
+
+            const tbody = document.querySelector("#mappings-table tbody");
+            mappings.forEach((m) => {
+                const tr = document.createElement("tr");
+                const stats = Object.entries(m.stats || {}).map(([k, v]) => `${k}: ${v}`).join(", ") || "-";
+                tr.innerHTML = `
+                    <td>${m.source_user_id}</td>
+                    <td>${m.destination_user_id}</td>
+                    <td>${m.source_root_path || "/"}</td>
+                    <td>${m.destination_root_path || "/"}</td>
+                    <td>${m.status}${m.error ? ` <span class="error">(${m.error})</span>` : ""}</td>
+                    <td class="muted">${stats}</td>
+                    <td>
+                        ${job.status === "draft" || job.status === "mapped" ? `<button data-remove="${m.id}">Remove</button>` : `<button data-items="${m.id}">Items</button>`}
+                    </td>
+                `;
+                const removeBtn = tr.querySelector("[data-remove]");
+                if (removeBtn) removeBtn.onclick = () => removeMapping(m.id);
+                const itemsBtn = tr.querySelector("[data-items]");
+                if (itemsBtn) itemsBtn.onclick = () => showItems(m.id);
+                tbody.appendChild(tr);
+            });
+
+            const addForm = document.getElementById("add-mapping-form");
+            if (addForm) addForm.addEventListener("submit", addMapping);
+
+            renderJobActions(job, mappings);
+        }
+
+        function renderJobActions(job, mappings) {
+            const el = document.getElementById("job-actions");
+            let html = "";
+
+            if (job.status === "mapped" && mappings.length > 0) {
+                html += `<button id="prestage-btn">Run pre-stage</button>`;
+            }
+            if (job.status === "prestaging") {
+                html += `<p class="muted">Pre-staging in progress&hellip; <button id="refresh-btn">Refresh</button></p>`;
+            }
+            if (job.status === "prestaged") {
+                html += `
+                    <button id="run-btn">Run now</button>
+                    <form id="schedule-form" style="display:inline;">
+                        <input type="datetime-local" name="scheduled_at" required>
+                        <button type="submit">Schedule</button>
+                    </form>
+                `;
+            }
+            if (job.status === "scheduled") {
+                html += `<button id="unschedule-btn">Unschedule</button>`;
+            }
+            if (job.status === "running") {
+                html += `<p class="muted">Migration running&hellip; <button id="refresh-btn">Refresh</button></p>`;
+            }
+            if (job.status === "failed") {
+                // "failed" at the job level means pre-stage itself couldn't list
+                // the source for any mapping — nothing was ever run, so the fix
+                // is to retry pre-stage, not the copy.
+                html += `
+                    <p class="error">Pre-stage failed for every mapping (see errors above). Fix the underlying issue, then retry pre-stage.</p>
+                    <button id="prestage-btn">Retry pre-stage</button>
+                `;
+            }
+            if (job.status === "completed" || job.status === "completed_with_errors") {
+                if (job.status === "completed_with_errors") {
+                    html += `<p class="error">Some items failed (see the mapping error/stats above, or Items for detail). Already-copied items are skipped on retry.</p>
+                              <button id="run-again-btn">Run again</button> `;
+                }
+                html += `
+                    <button id="report-btn">View report</button>
+                    <button id="recreate-shares-btn">Recreate share links</button>
+                    <button id="archive-btn">Archive</button>
+                    <form id="email-report-form" style="display:inline;">
+                        <input type="email" name="email" placeholder="Email report to&hellip;" required>
+                        <button type="submit">Send</button>
+                    </form>
+                `;
+            }
+
+            el.innerHTML = html;
+
+            const bind = (id, fn) => { const b = document.getElementById(id); if (b) b.onclick = fn; };
+            bind("prestage-btn", () => runAction(`/migrations/jobs/${job.id}/prestage`, "post"));
+            bind("run-btn", () => runAction(`/migrations/jobs/${job.id}/run`, "post"));
+            bind("run-again-btn", () => runAction(`/migrations/jobs/${job.id}/run`, "post"));
+            bind("unschedule-btn", () => runAction(`/migrations/jobs/${job.id}/unschedule`, "post"));
+            bind("refresh-btn", renderJobDetail);
+            bind("recreate-shares-btn", () => runAction(`/migrations/jobs/${job.id}/recreate-share-links`, "post"));
+            bind("archive-btn", () => runAction(`/migrations/jobs/${job.id}/archive`, "post"));
+            bind("report-btn", showReport);
+
+            const scheduleForm = document.getElementById("schedule-form");
+            if (scheduleForm) scheduleForm.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                const value = new FormData(e.target).get("scheduled_at");
+                await runAction(`/migrations/jobs/${job.id}/schedule`, "post", {
+                    scheduled_at: new Date(value).toISOString(),
+                });
+            });
+
+            const emailForm = document.getElementById("email-report-form");
+            if (emailForm) emailForm.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                const email = new FormData(e.target).get("email");
+                try {
+                    await api(`/migrations/jobs/${job.id}/report/email`, {
+                        method: "POST",
+                        body: JSON.stringify({ email }),
+                    });
+                    showError("");
+                } catch (err) {
+                    showError(err.message);
+                }
+            });
+        }
+
+        async function runAction(path, method, body) {
+            showError("");
+            try {
+                await api(path, { method: method.toUpperCase(), body: body ? JSON.stringify(body) : undefined });
+                await renderJobDetail();
+                await loadJobs();
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function addMapping(e) {
+            e.preventDefault();
+            showError("");
+            const form = new FormData(e.target);
+            try {
+                await api(`/migrations/jobs/${selectedJobId}/mappings`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        source_user_id: Number(form.get("source_user_id")),
+                        destination_user_id: Number(form.get("destination_user_id")),
+                        source_root_path: form.get("source_root_path") || "",
+                        destination_root_path: form.get("destination_root_path") || "",
+                    }),
+                });
+                await renderJobDetail();
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        async function removeMapping(mappingId) {
+            showError("");
+            try {
+                await api(`/migrations/jobs/${selectedJobId}/mappings/${mappingId}`, { method: "DELETE" });
+                await renderJobDetail();
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function showItems(mappingId) {
+            showError("");
+            try {
+                const items = await api(`/migrations/jobs/${selectedJobId}/mappings/${mappingId}/items`);
+                const rows = items.map((it) => `
+                    <tr>
+                        <td>${it.source_path}</td>
+                        <td>${it.is_folder ? "folder" : "file"}</td>
+                        <td>${it.status}</td>
+                        <td>${it.size_bytes ?? "-"}</td>
+                        <td>${it.verified ? "yes" : "no"}</td>
+                        <td>${it.share_recreated ? "yes" : "no"}</td>
+                        <td class="error">${it.error || ""}</td>
+                    </tr>
+                `).join("");
+                document.getElementById("job-report").innerHTML = `
+                    <h5>Items for mapping #${mappingId}</h5>
+                    <table>
+                        <thead><tr><th>Path</th><th>Type</th><th>Status</th><th>Size</th><th>Verified</th><th>Shared</th><th>Error</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                `;
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function showReport() {
+            showError("");
+            try {
+                const { report_text } = await api(`/migrations/jobs/${selectedJobId}/report`);
+                document.getElementById("job-report").innerHTML = `<h5>Report</h5><pre>${report_text}</pre>`;
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        document.getElementById("new-job-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            showError("");
+            const form = new FormData(e.target);
+            const notifyEmail = form.get("notify_email");
+            try {
+                const job = await api("/migrations/jobs", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        source_provider: form.get("source_provider"),
+                        destination_provider: form.get("destination_provider"),
+                        notify_email: notifyEmail || null,
+                    }),
+                });
+                e.target.reset();
+                await loadJobs();
+                selectJob(job.id);
+            } catch (err) {
+                showError(err.message);
+            }
+        });
+
+        (async () => {
+            await loadMe();
+            await loadJobs();
+        })();
+    </script>
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>

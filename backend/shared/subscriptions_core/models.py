@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import Column, ForeignKey, Integer, String, JSON, Boolean, DateTime, func
 
 from shared.subscriptions_core.db import Base
@@ -23,3 +25,35 @@ class UserSubscription(Base):
     user_id = Column(Integer, nullable=False, unique=True, index=True)
     plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Payment(Base):
+    """A checkout attempt for a paid plan. `method` is a plain string
+    ("cash" today) rather than an enum so adding "card" later, once a real
+    gateway is wired up, needs no migration. `status` starts "pending" and
+    only a platform admin confirming/rejecting it changes that — the plan
+    itself isn't switched until confirmed (see subscriptions_core README)."""
+
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)
+    method = Column(String, nullable=False, default="cash")
+    status = Column(String, nullable=False, default="pending")  # pending | confirmed | rejected
+
+    billing_name = Column(String, nullable=False)
+    billing_email = Column(String, nullable=False)
+    billing_phone = Column(String, nullable=True)
+    billing_address_line1 = Column(String, nullable=False)
+    billing_address_line2 = Column(String, nullable=True)
+    billing_city = Column(String, nullable=False)
+    billing_state = Column(String, nullable=True)
+    billing_zip = Column(String, nullable=True)
+    billing_country = Column(String, nullable=False)
+    company_name = Column(String, nullable=True)
+    notes = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_by_admin_id = Column(Integer, nullable=True)

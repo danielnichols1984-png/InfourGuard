@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin: Users</title>
+</head>
+<body>
+    <h2>Admin: Users</h2>
+    <p><a href="/dashboard">Back to dashboard</a> &middot; <a href="/admin/plans">Manage plans</a> &middot; <a href="/admin/businesses">Business Accounts</a></p>
+    <div id="error" style="color:red;"></div>
+
+    <h3>Users</h3>
+    <table border="1" cellpadding="6" id="users-table">
+        <thead>
+            <tr><th>ID</th><th>Email</th><th>Admin</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <h4>Create a user</h4>
+    <form id="new-user-form">
+        <input type="email" name="email" placeholder="email@example.com" required>
+        <input type="password" name="password" placeholder="Temporary password" required>
+        <button type="submit">Create user</button>
+    </form>
+
+    <script>
+        let me = null;
+
+        function showError(msg) {
+            document.getElementById("error").textContent = msg || "";
+        }
+
+        async function api(path, options) {
+            const res = await fetch(path, {
+                headers: { "Content-Type": "application/json" },
+                ...options,
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || `Request failed (${res.status})`);
+            }
+            return res.status === 204 ? null : res.json();
+        }
+
+        async function loadUsers() {
+            me = await api("/auth/me");
+            const users = await api("/auth/admin/users");
+            const tbody = document.querySelector("#users-table tbody");
+            tbody.innerHTML = "";
+            users.forEach((u) => {
+                const isSelf = u.id === me.id;
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${u.id}</td>
+                    <td>${u.email}</td>
+                    <td>${u.is_admin ? "Yes" : "No"}</td>
+                    <td>
+                        ${!u.is_admin ? `<button data-view-as="${u.id}">View as</button>` : ""}
+                        ${!isSelf ? `<button data-toggle-admin="${u.id}" data-current="${u.is_admin}">${u.is_admin ? "Remove admin" : "Make admin"}</button>` : ""}
+                        ${!isSelf && !u.is_admin ? `<button data-delete="${u.id}">Delete</button>` : ""}
+                        ${isSelf || !u.is_admin ? `<button data-reset-password="${u.id}">Reset password</button>` : ""}
+                        ${!u.is_admin ? `<button data-email-google="${u.id}">Email Google report</button>` : ""}
+                        ${!u.is_admin ? `<button data-email-dropbox="${u.id}">Email Dropbox report</button>` : ""}
+                        ${!u.is_admin ? `<button data-email-microsoft="${u.id}">Email OneDrive report</button>` : ""}
+                    </td>
+                `;
+                const viewAsBtn = tr.querySelector("[data-view-as]");
+                if (viewAsBtn) viewAsBtn.onclick = () => viewAs(u.id);
+                const toggleBtn = tr.querySelector("[data-toggle-admin]");
+                if (toggleBtn) toggleBtn.onclick = () => toggleAdmin(u.id, u.is_admin);
+                const deleteBtn = tr.querySelector("[data-delete]");
+                if (deleteBtn) deleteBtn.onclick = () => deleteUser(u.id);
+                const resetBtn = tr.querySelector("[data-reset-password]");
+                if (resetBtn) resetBtn.onclick = () => resetPassword(u.id, u.email);
+                const emailGoogleBtn = tr.querySelector("[data-email-google]");
+                if (emailGoogleBtn) emailGoogleBtn.onclick = () => emailReport(u.id, "google", u.email);
+                const emailDropboxBtn = tr.querySelector("[data-email-dropbox]");
+                if (emailDropboxBtn) emailDropboxBtn.onclick = () => emailReport(u.id, "dropbox", u.email);
+                const emailMicrosoftBtn = tr.querySelector("[data-email-microsoft]");
+                if (emailMicrosoftBtn) emailMicrosoftBtn.onclick = () => emailReport(u.id, "microsoft", u.email);
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function viewAs(userId) {
+            showError("");
+            try {
+                await api(`/auth/admin/users/${userId}/impersonate`, { method: "POST" });
+                window.location.href = "/dashboard";
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function toggleAdmin(userId, currentlyAdmin) {
+            showError("");
+            try {
+                await api(`/auth/admin/users/${userId}/admin-status?is_admin=${!currentlyAdmin}`, {
+                    method: "PUT",
+                });
+                await loadUsers();
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function deleteUser(userId) {
+            if (!confirm(`Delete user #${userId}? This can't be undone.`)) return;
+            showError("");
+            try {
+                await api(`/auth/admin/users/${userId}`, { method: "DELETE" });
+                await loadUsers();
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function resetPassword(userId, email) {
+            const newPassword = prompt(`New password for ${email}:`);
+            if (!newPassword) return;
+            showError("");
+            try {
+                await api(`/auth/admin/users/${userId}/password`, {
+                    method: "PUT",
+                    body: JSON.stringify({ new_password: newPassword }),
+                });
+                alert("Password updated.");
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        async function emailReport(userId, provider, defaultEmail) {
+            const email = prompt(`Send this user's ${provider} report to:`, defaultEmail);
+            if (!email) return;
+            showError("");
+            try {
+                const result = await api(`/connect/admin/users/${userId}/${provider}/report/email`, {
+                    method: "POST",
+                    body: JSON.stringify({ email }),
+                });
+                alert(result.sent ? "Report sent." : "Couldn't send — check email settings.");
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        document.getElementById("new-user-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            showError("");
+            const form = new FormData(e.target);
+            try {
+                await api("/auth/admin/users", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        email: form.get("email"),
+                        password: form.get("password"),
+                    }),
+                });
+                e.target.reset();
+                await loadUsers();
+            } catch (err) {
+                showError(err.message);
+            }
+        });
+
+        loadUsers();
+    </script>
+    <script src="/static/js/impersonation-banner.js"></script>
+</body>
+</html>
