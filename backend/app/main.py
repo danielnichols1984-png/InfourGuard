@@ -187,7 +187,7 @@ def home_page(request: Request, user=Depends(get_optional_user), db: Session = D
 def admin_content_page(request: Request, user=Depends(get_optional_user), db: Session = Depends(get_content_db)):
     if not user:
         return RedirectResponse("/login")
-    if not user.is_admin:
+    if not user.is_site_admin:
         return RedirectResponse("/dashboard")
     content = get_homepage_content(db)
     return templates.TemplateResponse(request, "admin_content.html", {"user": user, "content": content})

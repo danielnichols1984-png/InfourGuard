@@ -11,6 +11,10 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_admin = Column(Boolean, nullable=False, default=False)
+    # Deliberately independent of is_admin — controls only the marketing
+    # homepage editor (content_core), not plans/impersonation/anything
+    # else is_admin gates. A user can hold either, both, or neither.
+    is_site_admin = Column(Boolean, nullable=False, default=False)
 
 
 class ImpersonationLog(Base):

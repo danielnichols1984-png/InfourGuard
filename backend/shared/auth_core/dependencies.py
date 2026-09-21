@@ -54,6 +54,12 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_site_admin(user: User = Depends(get_current_user)) -> User:
+    if not user.is_site_admin:
+        raise HTTPException(status_code=403, detail="Site admin access required")
+    return user
+
+
 def get_optional_user(request: Request, db: Session = Depends(get_db)):
     token = request.cookies.get(settings.COOKIE_NAME)
     if not token:
