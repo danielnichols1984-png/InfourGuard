@@ -20,13 +20,17 @@
 
     <div class="card"><div class="card-title">Google Workspace</div><div id="google_workspace-status">Loading&hellip;</div></div>
     <div class="card"><div class="card-title">Microsoft 365</div><div id="microsoft365-status">Loading&hellip;</div></div>
-    <div class="card"><div class="card-title">Dropbox Business</div><div id="dropbox_business-status">Loading&hellip;</div></div>
 
     <script>
+        // Dropbox Business intentionally left out of this portal for now —
+        // not feasible to require a paid Dropbox Business subscription
+        // just to get started. The underlying code (tenants_core's
+        // dropbox_team.py, /organization/dropbox-business, /tenants/
+        // dropbox-business) is untouched and still there to re-enable
+        // later — just add its entry back here and unset nothing.
         const LABELS = {
             google_workspace: { name: "Google Workspace", connectPath: "/tenants/google-workspace", reportPage: "/organization/google-workspace" },
             microsoft365: { name: "Microsoft 365", connectPath: "/tenants/microsoft365", reportPage: "/organization/microsoft365" },
-            dropbox_business: { name: "Dropbox Business", connectPath: "/tenants/dropbox-business", reportPage: "/organization/dropbox-business" },
         };
 
         function showError(msg) {
