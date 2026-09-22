@@ -286,6 +286,15 @@ def _copy_item(
     dest_hash = result.get("hash")
     verified = bool(dest_hash) and dest_adapter.compute_hash(data) == dest_hash
 
+    # A destination-side name collision with an unrelated pre-existing
+    # file gets auto-renamed by the provider (never overwritten — see
+    # dropbox_integration.upload_file_bytes / microsoft.upload_file_bytes)
+    # rather than raising, so reflect whatever name it actually landed
+    # under in our own records instead of the one we planned.
+    actual_name = result.get("name")
+    if actual_name and actual_name != name:
+        item.destination_path = str(PurePosixPath(item.destination_path).with_name(actual_name))
+
     item.destination_ref = result.get("ref")
     item.destination_hash = dest_hash
     item.verified = verified

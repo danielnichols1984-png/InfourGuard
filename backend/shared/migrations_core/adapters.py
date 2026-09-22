@@ -190,7 +190,10 @@ class GoogleAdapter(ProviderAdapter):
     def upload(self, client, parent_ref, name, data, mime_type):
         service, drive_id = client
         result = google_integration.upload_file_bytes(service, parent_ref, name, data, mime_type, drive_id)
-        return {"ref": result["id"], "hash": result.get("md5Checksum")}
+        # Drive allows duplicate names and never overwrites, so the
+        # requested name is always the actual one — echoed back for
+        # interface consistency with Dropbox/Microsoft, which may rename.
+        return {"ref": result["id"], "hash": result.get("md5Checksum"), "name": name}
 
     def compute_hash(self, data):
         return google_integration.compute_md5(data)
@@ -261,7 +264,7 @@ class DropboxAdapter(ProviderAdapter):
     def upload(self, client, parent_ref, name, data, mime_type):
         dest_path = f"{parent_ref}/{name}" if parent_ref else f"/{name}"
         result = dropbox_integration.upload_file_bytes(client, dest_path, data)
-        return {"ref": result["path"], "hash": result.get("content_hash")}
+        return {"ref": result["path"], "hash": result.get("content_hash"), "name": result.get("name", name)}
 
     def compute_hash(self, data):
         return dropbox_integration.compute_dropbox_content_hash(data)

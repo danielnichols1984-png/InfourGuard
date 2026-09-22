@@ -22,6 +22,11 @@ class TenantsSettings(BaseSettings):
 
     DATABASE_URL: str = Field(validation_alias="TENANTS_DATABASE_URL")
 
+    # Encrypts every stored OAuth secret at rest — see crypto.py.
+    # Unprefixed and shared with integrations_core's identical setting
+    # (same one app, one key precedent as GOOGLE_CLIENT_ID etc.).
+    TOKEN_ENCRYPTION_KEY: str
+
     GOOGLE_ADMIN_REDIRECT_URI: str | None = None
 
     MICROSOFT_ADMIN_REDIRECT_URI: str | None = None

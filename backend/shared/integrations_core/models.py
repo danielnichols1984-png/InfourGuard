@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Text, UniqueConstraint
 
+from shared.integrations_core.crypto import EncryptedText
 from shared.integrations_core.db import Base
 
 
@@ -16,8 +17,10 @@ class UserIntegration(Base):
     user_id = Column(Integer, nullable=False, index=True)
     provider = Column(String(20), nullable=False, index=True)
 
-    access_token = Column(Text, nullable=True)
-    refresh_token = Column(Text, nullable=True)
+    # Encrypted at rest (see crypto.py) — these are the actual live OAuth
+    # credentials, the most sensitive thing this module stores.
+    access_token = Column(EncryptedText, nullable=True)
+    refresh_token = Column(EncryptedText, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     # Space-separated scopes actually granted at connect time (from the
     # provider's own token response) — the ground truth for what this
@@ -27,9 +30,11 @@ class UserIntegration(Base):
     scope = Column(Text, nullable=True)
 
     # Transient OAuth handshake state (CSRF token + PKCE verifier), cleared
-    # once save_tokens() is called after a successful callback.
-    oauth_state = Column(String(255), nullable=True)
-    code_verifier = Column(String(255), nullable=True)
+    # once save_tokens() is called after a successful callback. Also
+    # encrypted — widened from String(255) to Text (via EncryptedText)
+    # since ciphertext for a full-length PKCE verifier exceeds 255 chars.
+    oauth_state = Column(EncryptedText, nullable=True)
+    code_verifier = Column(EncryptedText, nullable=True)
 
     updated_at = Column(DateTime(timezone=True), nullable=True)
 

@@ -383,7 +383,6 @@ def send_report_email(to_email: str, report_text: str) -> bool:
 # MIGRATION SUPPORT: folder tree walking, download/upload, sharing
 # ---------------------------------------------------------
 
-ONEDRIVE_SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024  # Graph's documented safe limit for PUT .../content
 ONEDRIVE_UPLOAD_CHUNK_SIZE = 10 * 1024 * 1024  # must be a multiple of 320 KiB per Graph docs
 
 
@@ -511,7 +510,7 @@ def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes, b
     session_resp = requests.post(
         f"{GRAPH_BASE}{base_path}/items/{parent_id}:/{name}:/createUploadSession",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-        json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
+        json={"item": {"@microsoft.graph.conflictBehavior": "rename"}},
         timeout=30,
     )
     session_resp.raise_for_status()
@@ -537,25 +536,29 @@ def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes, b
 
 
 def upload_file_bytes(access_token: str, parent_id: str, name: str, data: bytes, base_path: str = "/me/drive") -> dict:
-    """Returns {"ref", "hash"}. Uses a chunked upload session above
-    Graph's documented 4MB simple-upload threshold, the same size
-    boundary Dropbox's own adapter uses (150MB there) for the same
-    reason — a large simple PUT is unreliable and Graph explicitly
-    recommends upload sessions past this size."""
-    if len(data) <= ONEDRIVE_SIMPLE_UPLOAD_LIMIT:
-        resp = requests.put(
-            f"{GRAPH_BASE}{base_path}/items/{parent_id}:/{name}:/content",
-            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/octet-stream"},
-            data=data,
-            timeout=120,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-    else:
-        result = _chunked_upload(access_token, parent_id, name, data, base_path)
-
+    """Returns {"ref", "hash", "name"}. Always goes through the upload-
+    session path (originally reserved for files over Graph's 4MB simple-
+    upload threshold) rather than a direct PUT-by-path for any size —
+    the simple PUT-to-content endpoint has no conflict-behavior control
+    at all (it always replaces whatever's at that exact address), while
+    createUploadSession accepts @microsoft.graph.conflictBehavior for
+    any file size. A migration retry never re-uploads an already-copied
+    item (service.py's _run_mapping skips anything already marked
+    status=="copied" before ever calling this again), so "replace" was
+    never actually needed for that case — it only meant a destination
+    folder that happens to already contain an unrelated same-named file
+    would get silently overwritten. "rename" (see _chunked_upload) means
+    that file survives untouched and the incoming one lands under a
+    Graph-assigned alternate name instead — callers must use the
+    returned "name" (not the requested `name`) as the item's actual
+    destination name."""
+    result = _chunked_upload(access_token, parent_id, name, data, base_path)
     file_facet = (result or {}).get("file") or {}
-    return {"ref": result["id"], "hash": file_facet.get("hashes", {}).get("quickXorHash")}
+    return {
+        "ref": result["id"],
+        "hash": file_facet.get("hashes", {}).get("quickXorHash"),
+        "name": result.get("name", name),
+    }
 
 
 def apply_public_sharing(access_token: str, item_id: str, base_path: str = "/me/drive") -> str:

@@ -113,9 +113,20 @@ def download_file_bytes(dbx: dropbox.Dropbox, path: str) -> bytes:
 def upload_file_bytes(dbx: dropbox.Dropbox, path: str, data: bytes) -> dict:
     """Uploads `data` to `path`, using a chunked upload session for files
     over Dropbox's 150MB simple-upload limit. Returns
-    {"path", "content_hash"}."""
+    {"path", "content_hash", "name"}.
+
+    mode="add" + autorename=True (not "overwrite"): a migration retry
+    never re-uploads an already-copied item (service.py's _run_mapping
+    skips anything already marked status=="copied" in our own bookkeeping
+    before ever calling this again), so overwrite mode was never actually
+    needed for that case — it only meant a destination folder that
+    happens to already contain an unrelated same-named file would get
+    silently destroyed. Auto-rename means that file survives untouched
+    and the incoming one lands under a Dropbox-assigned alternate name
+    instead — callers must use the returned "name" (not the requested
+    `path`'s name) as the item's actual destination name."""
     if len(data) <= DROPBOX_SIMPLE_UPLOAD_LIMIT:
-        metadata = dbx.files_upload(data, path, mode=WriteMode("overwrite"))
+        metadata = dbx.files_upload(data, path, mode=WriteMode("add"), autorename=True)
     else:
         session_start = dbx.files_upload_session_start(data[:DROPBOX_UPLOAD_CHUNK_SIZE])
         cursor = UploadSessionCursor(
@@ -127,10 +138,10 @@ def upload_file_bytes(dbx: dropbox.Dropbox, path: str, data: bytes) -> dict:
             dbx.files_upload_session_append_v2(chunk, cursor)
             cursor.offset += len(chunk)
             offset += len(chunk)
-        commit = CommitInfo(path=path, mode=WriteMode("overwrite"))
+        commit = CommitInfo(path=path, mode=WriteMode("add"), autorename=True)
         metadata = dbx.files_upload_session_finish(data[offset:], cursor, commit)
 
-    return {"path": metadata.path_display, "content_hash": metadata.content_hash}
+    return {"path": metadata.path_display, "content_hash": metadata.content_hash, "name": metadata.name}
 
 
 def apply_public_sharing(dbx: dropbox.Dropbox, path: str) -> str:

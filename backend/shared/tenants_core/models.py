@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Text, UniqueConstraint
 
+from shared.tenants_core.crypto import EncryptedText
 from shared.tenants_core.db import Base
 
 
@@ -22,16 +23,21 @@ class TenantConnection(Base):
     # "google_workspace" | "microsoft365" | "dropbox_business"
     provider = Column(String(30), nullable=False, index=True)
 
-    access_token = Column(Text, nullable=True)
-    refresh_token = Column(Text, nullable=True)
+    # Encrypted at rest (see crypto.py) — these are the actual live OAuth
+    # credentials, the most sensitive thing this module stores.
+    access_token = Column(EncryptedText, nullable=True)
+    refresh_token = Column(EncryptedText, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     scope = Column(Text, nullable=True)
 
     tenant_domain = Column(String(255), nullable=True)
     tenant_name = Column(String(255), nullable=True)
 
-    oauth_state = Column(String(255), nullable=True)
-    code_verifier = Column(String(255), nullable=True)
+    # Transient OAuth handshake state, also encrypted — widened from
+    # String(255) to Text (via EncryptedText) since ciphertext for a
+    # full-length PKCE verifier exceeds 255 chars.
+    oauth_state = Column(EncryptedText, nullable=True)
+    code_verifier = Column(EncryptedText, nullable=True)
 
     updated_at = Column(DateTime(timezone=True), nullable=True)
 

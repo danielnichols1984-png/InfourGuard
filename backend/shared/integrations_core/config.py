@@ -11,6 +11,14 @@ class IntegrationsSettings(BaseSettings):
 
     DATABASE_URL: str = Field(validation_alias="INTEGRATIONS_DATABASE_URL")
 
+    # Encrypts every stored OAuth secret (access/refresh tokens, in-flight
+    # CSRF state/PKCE verifier) at rest — see crypto.py. Unprefixed and
+    # shared with tenants_core's identical setting, same precedent as
+    # GOOGLE_CLIENT_ID etc.: one app, one key, each module reads it
+    # independently. No default — a missing key must fail loudly at
+    # startup, not silently store secrets in plaintext.
+    TOKEN_ENCRYPTION_KEY: str
+
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
     GOOGLE_REDIRECT_URI: str | None = None

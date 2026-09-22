@@ -59,6 +59,13 @@ services:
 
       - key: AUTH_SECRET_KEY
         generateValue: true
+      # Encrypts stored OAuth secrets (integrations_core/tenants_core) —
+      # on an already-existing service, generateValue only takes effect
+      # for a var Render doesn't already have, so on this service you'll
+      # set this manually in the dashboard instead (see .env.example for
+      # why the order relative to encrypt_existing_tokens.py matters).
+      - key: TOKEN_ENCRYPTION_KEY
+        generateValue: true
 
       - key: GOOGLE_CLIENT_ID
         sync: false
