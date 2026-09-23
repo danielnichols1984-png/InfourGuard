@@ -1,5 +1,6 @@
 """Dropbox integration: OAuth flow, file listing, and report generation."""
 import hashlib
+from datetime import timezone
 from pathlib import Path
 
 import dropbox
@@ -88,6 +89,10 @@ def list_folder_tree(dbx: dropbox.Dropbox, root_path: str) -> list[dict]:
                 "content_hash": None if is_folder else getattr(entry, "content_hash", None),
                 "shared": has_sharing_info or has_shared_link,
                 "anyone_with_link": has_shared_link,
+                # The file's own client-set modified time, not Dropbox's
+                # server-received time — the more faithful "true" value to
+                # preserve on a migration. None for folders.
+                "client_modified": None if is_folder else getattr(entry, "client_modified", None),
             }
         )
     return tree
@@ -110,23 +115,15 @@ def download_file_bytes(dbx: dropbox.Dropbox, path: str) -> bytes:
     return response.content
 
 
-def upload_file_bytes(dbx: dropbox.Dropbox, path: str, data: bytes) -> dict:
-    """Uploads `data` to `path`, using a chunked upload session for files
-    over Dropbox's 150MB simple-upload limit. Returns
-    {"path", "content_hash", "name"}.
-
-    mode="add" + autorename=True (not "overwrite"): a migration retry
-    never re-uploads an already-copied item (service.py's _run_mapping
-    skips anything already marked status=="copied" in our own bookkeeping
-    before ever calling this again), so overwrite mode was never actually
-    needed for that case — it only meant a destination folder that
-    happens to already contain an unrelated same-named file would get
-    silently destroyed. Auto-rename means that file survives untouched
-    and the incoming one lands under a Dropbox-assigned alternate name
-    instead — callers must use the returned "name" (not the requested
-    `path`'s name) as the item's actual destination name."""
+def _dropbox_write(dbx: dropbox.Dropbox, path: str, data: bytes, mode: str, autorename: bool, client_modified=None) -> dict:
+    # Dropbox's API requires a naive UTC datetime for client_modified — a
+    # caller passing a timezone-aware one (e.g. service.py's parsed
+    # source_modified_at) gets normalized here rather than needing every
+    # caller to know this Dropbox-specific quirk.
+    if client_modified is not None and client_modified.tzinfo is not None:
+        client_modified = client_modified.astimezone(timezone.utc).replace(tzinfo=None)
     if len(data) <= DROPBOX_SIMPLE_UPLOAD_LIMIT:
-        metadata = dbx.files_upload(data, path, mode=WriteMode("add"), autorename=True)
+        metadata = dbx.files_upload(data, path, mode=WriteMode(mode), autorename=autorename, client_modified=client_modified)
     else:
         session_start = dbx.files_upload_session_start(data[:DROPBOX_UPLOAD_CHUNK_SIZE])
         cursor = UploadSessionCursor(
@@ -138,10 +135,41 @@ def upload_file_bytes(dbx: dropbox.Dropbox, path: str, data: bytes) -> dict:
             dbx.files_upload_session_append_v2(chunk, cursor)
             cursor.offset += len(chunk)
             offset += len(chunk)
-        commit = CommitInfo(path=path, mode=WriteMode("add"), autorename=True)
+        commit = CommitInfo(path=path, mode=WriteMode(mode), autorename=autorename, client_modified=client_modified)
         metadata = dbx.files_upload_session_finish(data[offset:], cursor, commit)
 
     return {"path": metadata.path_display, "content_hash": metadata.content_hash, "name": metadata.name}
+
+
+def upload_file_bytes(dbx: dropbox.Dropbox, path: str, data: bytes, client_modified=None) -> dict:
+    """Uploads `data` to `path` as a NEW file, using a chunked upload
+    session for files over Dropbox's 150MB simple-upload limit. Returns
+    {"path", "content_hash", "name"}. client_modified (a naive UTC
+    datetime), when given, preserves the source's own last-modified time
+    instead of Dropbox stamping the upload time.
+
+    mode="add" + autorename=True (not "overwrite"): a migration retry
+    never re-uploads an already-copied item (service.py's _run_mapping
+    skips anything already marked status=="copied" in our own bookkeeping
+    before ever calling this again), so overwrite mode was never actually
+    needed for that case — it only meant a destination folder that
+    happens to already contain an unrelated same-named file would get
+    silently destroyed. Auto-rename means that file survives untouched
+    and the incoming one lands under a Dropbox-assigned alternate name
+    instead — callers must use the returned "name" (not the requested
+    `path`'s name) as the item's actual destination name."""
+    return _dropbox_write(dbx, path, data, mode="add", autorename=True, client_modified=client_modified)
+
+
+def replace_file_bytes(dbx: dropbox.Dropbox, path: str, data: bytes, client_modified=None) -> dict:
+    """Replaces the CONTENT of an already-known file at the exact `path`
+    this engine wrote it to previously — used only for a delta-rescan's
+    positively-identified update to a file this engine copied itself
+    (see _copy_item's replace()-vs-upload() branch), never for a fresh
+    item. mode="overwrite" is safe here specifically because `path` is
+    our own prior write, not a guessed name that might collide with an
+    unrelated file — unlike upload_file_bytes above."""
+    return _dropbox_write(dbx, path, data, mode="overwrite", autorename=False, client_modified=client_modified)
 
 
 def apply_public_sharing(dbx: dropbox.Dropbox, path: str) -> str:

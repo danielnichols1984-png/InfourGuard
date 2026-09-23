@@ -14,6 +14,7 @@ class AddMappingRequest(BaseModel):
     destination_user_id: int
     source_root_path: str = ""
     destination_root_path: str = ""
+    preserve_metadata: bool = True
 
 
 class ScheduleJobRequest(BaseModel):
@@ -41,6 +42,7 @@ class MappingResponse(BaseModel):
     destination_user_id: int
     source_root_path: str
     destination_root_path: str
+    preserve_metadata: bool
     status: str
     stats: dict
     error: str | None
@@ -54,6 +56,7 @@ class ItemResponse(BaseModel):
     destination_path: str
     is_folder: bool
     size_bytes: int | None
+    source_modified_at: datetime | None
     status: str
     verified: bool
     share_recreated: bool

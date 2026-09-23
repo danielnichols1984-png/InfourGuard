@@ -159,7 +159,7 @@
                 <div class="table-responsive">
                 <table id="mappings-table">
                     <thead>
-                        <tr><th>Source user</th><th>Dest user</th><th>Source root</th><th>Dest root</th><th>Status</th><th>Stats</th><th></th></tr>
+                        <tr><th>Source user</th><th>Dest user</th><th>Source root</th><th>Dest root</th><th>Metadata</th><th>Status</th><th>Stats</th><th></th></tr>
                     </thead>
                     <tbody></tbody>
                 </table>
@@ -171,6 +171,9 @@
                     <input type="number" name="destination_user_id" placeholder="Destination user id" value="${me.id}" required>
                     <input type="text" name="source_root_path" placeholder="Source folder (blank = everything)">
                     <input type="text" name="destination_root_path" placeholder="Destination folder">
+                    <label style="font-size: 13px; color: var(--ink-700); white-space: nowrap;">
+                        <input type="checkbox" name="preserve_metadata" checked style="width: auto;"> Preserve last-modified dates
+                    </label>
                     <button type="submit" class="btn btn-primary">Add mapping</button>
                 </form>
                 <p class="muted">${me.is_admin ? "As an admin, you can map any two users." : "You can only map yourself — migrating your own connected accounts."}</p>
@@ -189,6 +192,7 @@
                     <td>${m.destination_user_id}</td>
                     <td>${m.source_root_path || "/"}</td>
                     <td>${m.destination_root_path || "/"}</td>
+                    <td>${m.preserve_metadata ? "Preserved" : "Not preserved"}</td>
                     <td>${m.status}${m.error ? ` <span class="error">(${m.error})</span>` : ""}</td>
                     <td class="muted">${stats}</td>
                     <td>
@@ -248,6 +252,7 @@
                               <button id="run-again-btn" class="btn btn-primary">Run again</button> `;
                 }
                 html += `
+                    <button id="rescan-btn" class="btn btn-secondary" title="Re-scan the source for anything new, changed, or removed since this ran">Check for changes</button>
                     <button id="report-btn" class="btn btn-secondary">View report</button>
                     <button id="recreate-shares-btn" class="btn btn-secondary">Recreate share links</button>
                     <button id="archive-btn" class="btn btn-secondary">Archive</button>
@@ -262,6 +267,7 @@
 
             const bind = (id, fn) => { const b = document.getElementById(id); if (b) b.onclick = fn; };
             bind("prestage-btn", () => runAction(`/migrations/jobs/${job.id}/prestage`, "post"));
+            bind("rescan-btn", () => runAction(`/migrations/jobs/${job.id}/prestage`, "post"));
             bind("run-btn", () => runAction(`/migrations/jobs/${job.id}/run`, "post"));
             bind("run-again-btn", () => runAction(`/migrations/jobs/${job.id}/run`, "post"));
             bind("unschedule-btn", () => runAction(`/migrations/jobs/${job.id}/unschedule`, "post"));
@@ -318,6 +324,7 @@
                         destination_user_id: Number(form.get("destination_user_id")),
                         source_root_path: form.get("source_root_path") || "",
                         destination_root_path: form.get("destination_root_path") || "",
+                        preserve_metadata: form.get("preserve_metadata") === "on",
                     }),
                 });
                 await renderJobDetail();

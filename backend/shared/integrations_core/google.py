@@ -280,13 +280,21 @@ def export_file_bytes(service, file_id: str, export_mime_type: str) -> bytes:
     return buffer.getvalue()
 
 
-def upload_file_bytes(service, parent_id: str, name: str, data: bytes, mime_type: str, drive_id: str | None = None) -> dict:
+def upload_file_bytes(
+    service, parent_id: str, name: str, data: bytes, mime_type: str, drive_id: str | None = None,
+    modified_at: str | None = None,
+) -> dict:
     """Uploads `data` as a new file under parent_id. Returns {"id", "md5Checksum"}.
     supportsAllDrives is required on create() when parent_id lives inside
-    a Shared Drive — see resolve_path_to_folder_id for drive_id."""
+    a Shared Drive — see resolve_path_to_folder_id for drive_id.
+    modified_at, when given (RFC3339 string), preserves the source's own
+    last-modified time instead of Drive stamping the upload time."""
     media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime_type or "application/octet-stream")
+    body = {"name": name, "parents": [parent_id]}
+    if modified_at:
+        body["modifiedTime"] = modified_at
     create_kwargs = {
-        "body": {"name": name, "parents": [parent_id]},
+        "body": body,
         "media_body": media,
         "fields": "id, md5Checksum",
     }
@@ -294,6 +302,19 @@ def upload_file_bytes(service, parent_id: str, name: str, data: bytes, mime_type
         create_kwargs["supportsAllDrives"] = True
     created = service.files().create(**create_kwargs).execute()
     return created
+
+
+def update_file_bytes(service, file_id: str, data: bytes, mime_type: str, modified_at: str | None = None) -> dict:
+    """Replaces the CONTENT of an already-known file (files().update(),
+    not create()) — used only for a delta-rescan's positively-identified
+    update to a file this engine copied itself previously (see
+    _copy_item's replace()-vs-upload() branch), never for a fresh item.
+    Returns {"id", "md5Checksum"}."""
+    media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime_type or "application/octet-stream")
+    body = {}
+    if modified_at:
+        body["modifiedTime"] = modified_at
+    return service.files().update(fileId=file_id, body=body, media_body=media, fields="id, md5Checksum").execute()
 
 
 def apply_public_sharing(service, file_id: str, drive_id: str | None = None) -> None:

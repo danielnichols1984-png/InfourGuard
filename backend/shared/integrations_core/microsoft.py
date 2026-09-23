@@ -440,7 +440,7 @@ def list_folder_tree(access_token: str, root_ref: str, base_path: str = "/me/dri
     entries: list[dict] = []
     url = (
         f"{GRAPH_BASE}{base_path}/items/{root_ref}/delta"
-        "?$select=id,name,folder,file,size,parentReference,shared,deleted"
+        "?$select=id,name,folder,file,size,parentReference,shared,deleted,fileSystemInfo"
     )
     while url:
         resp = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=30)
@@ -468,6 +468,7 @@ def list_folder_tree(access_token: str, root_ref: str, base_path: str = "/me/dri
                     "mime_type": None if is_folder else file_facet.get("mimeType"),
                     "ref": item["id"],
                     "anyone_with_link": bool(shared_facet and shared_facet.get("scope") == "anonymous"),
+                    "source_modified_at": None if is_folder else (item.get("fileSystemInfo") or {}).get("lastModifiedDateTime"),
                 }
             )
         url = data.get("@odata.nextLink")
@@ -506,11 +507,14 @@ def download_file_bytes(access_token: str, item_id: str, base_path: str = "/me/d
     return resp.content
 
 
-def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes, base_path: str) -> dict:
+def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes, base_path: str, modified_at: str | None = None) -> dict:
+    item_facet = {"@microsoft.graph.conflictBehavior": "rename"}
+    if modified_at:
+        item_facet["fileSystemInfo"] = {"lastModifiedDateTime": modified_at}
     session_resp = requests.post(
         f"{GRAPH_BASE}{base_path}/items/{parent_id}:/{name}:/createUploadSession",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-        json={"item": {"@microsoft.graph.conflictBehavior": "rename"}},
+        json={"item": item_facet},
         timeout=30,
     )
     session_resp.raise_for_status()
@@ -535,7 +539,10 @@ def _chunked_upload(access_token: str, parent_id: str, name: str, data: bytes, b
     return result
 
 
-def upload_file_bytes(access_token: str, parent_id: str, name: str, data: bytes, base_path: str = "/me/drive") -> dict:
+def upload_file_bytes(
+    access_token: str, parent_id: str, name: str, data: bytes, base_path: str = "/me/drive",
+    modified_at: str | None = None,
+) -> dict:
     """Returns {"ref", "hash", "name"}. Always goes through the upload-
     session path (originally reserved for files over Graph's 4MB simple-
     upload threshold) rather than a direct PUT-by-path for any size —
@@ -551,14 +558,50 @@ def upload_file_bytes(access_token: str, parent_id: str, name: str, data: bytes,
     that file survives untouched and the incoming one lands under a
     Graph-assigned alternate name instead — callers must use the
     returned "name" (not the requested `name`) as the item's actual
-    destination name."""
-    result = _chunked_upload(access_token, parent_id, name, data, base_path)
+    destination name. modified_at (ISO string), when given, preserves
+    the source's own last-modified time instead of Graph stamping the
+    upload time."""
+    result = _chunked_upload(access_token, parent_id, name, data, base_path, modified_at)
     file_facet = (result or {}).get("file") or {}
     return {
         "ref": result["id"],
         "hash": file_facet.get("hashes", {}).get("quickXorHash"),
         "name": result.get("name", name),
     }
+
+
+def replace_file_bytes(access_token: str, item_id: str, data: bytes, base_path: str = "/me/drive", modified_at: str | None = None) -> dict:
+    """Replaces the CONTENT of an already-known item by its id — used
+    only for a delta-rescan's positively-identified update to a file this
+    engine copied itself previously (see _copy_item's replace()-vs-
+    upload() branch), never for a fresh item. PUT-by-item-id addresses
+    the exact known item directly rather than a name-guessed path, so
+    there's no ambiguity about what's being replaced — safe here for the
+    same reason the general upload path deliberately avoids this simple
+    PUT endpoint (see upload_file_bytes's docstring). The simple content
+    PUT can't set fileSystemInfo in the same call, so modified_at (ISO
+    string) is applied with a follow-up PATCH when given."""
+    resp = requests.put(
+        f"{GRAPH_BASE}{base_path}/items/{item_id}/content",
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/octet-stream"},
+        data=data,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    result = resp.json()
+
+    if modified_at:
+        patch_resp = requests.patch(
+            f"{GRAPH_BASE}{base_path}/items/{item_id}",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json={"fileSystemInfo": {"lastModifiedDateTime": modified_at}},
+            timeout=30,
+        )
+        patch_resp.raise_for_status()
+        result = patch_resp.json()
+
+    file_facet = (result or {}).get("file") or {}
+    return {"ref": result["id"], "hash": file_facet.get("hashes", {}).get("quickXorHash")}
 
 
 def apply_public_sharing(access_token: str, item_id: str, base_path: str = "/me/drive") -> str:

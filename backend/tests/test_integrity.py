@@ -79,7 +79,10 @@ class _FakeAdapter:
     def ensure_child_folder(self, client, parent_ref, name):
         return "fake-folder-ref"
 
-    def upload(self, client, parent_ref, name, data, mime_type):
+    def upload(self, client, parent_ref, name, data, mime_type, modified_at=None):
+        return {"ref": "fake-dest-ref", "hash": self._upload_hash}
+
+    def replace(self, client, ref, data, mime_type, modified_at=None):
         return {"ref": "fake-dest-ref", "hash": self._upload_hash}
 
     def compute_hash(self, data):

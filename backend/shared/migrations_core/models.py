@@ -56,6 +56,11 @@ class MigrationUserMapping(Base):
     source_container_id = Column(String(255), nullable=True)
     destination_container_type = Column(String(20), nullable=True)
     destination_container_id = Column(String(255), nullable=True)
+    # Whether to carry the source's last-modified timestamp through to the
+    # destination on copy (see _copy_item/adapters.py's upload()/replace()).
+    # Off means every migrated file lands with today's date, same as
+    # before this was added.
+    preserve_metadata = Column(Boolean, nullable=False, default=True)
     # pending -> prestaging -> prestaged -> running ->
     # completed / completed_with_errors / failed
     status = Column(String(30), nullable=False, default="pending")
@@ -71,11 +76,16 @@ class MigrationUserMapping(Base):
 class MigrationItem(Base):
     """One planned file or folder within a user mapping.
 
-    Populated by pre-stage as a frozen snapshot (paths, native provider refs,
-    the source's own hash, sharing info) — the full run executes purely off
-    these rows rather than re-listing the source, which also means a partial
-    failure can be retried by re-running against whatever's left in
-    "planned"/"failed" status.
+    Populated by pre-stage as a snapshot (paths, native provider refs, the
+    source's own hash, sharing info) — the full run executes purely off
+    these rows rather than re-listing the source, which also means a
+    partial failure can be retried by re-running against whatever's left
+    in "planned"/"failed" status. Re-running pre-stage on a mapping that's
+    already been run merges a fresh source scan into these same rows
+    (matched by source_path) rather than replacing them wholesale, so an
+    already-"copied" item with unchanged content is left untouched — see
+    _walk_and_plan. That merge is what makes pre-stage double as a second
+    (delta) pass.
     """
 
     __tablename__ = "migration_items"
@@ -93,6 +103,12 @@ class MigrationItem(Base):
 
     is_folder = Column(Boolean, nullable=False, default=False)
     size_bytes = Column(Integer, nullable=True)
+    # The source's own last-modified timestamp at prestage/rescan time —
+    # captured regardless of preserve_metadata (cheap, comes back from the
+    # same list call), only actually applied at copy time when it's on.
+    # Also what a delta rescan compares against source_hash to detect a
+    # real edit vs. an untouched file.
+    source_modified_at = Column(DateTime(timezone=True), nullable=True)
     # Upload-time mime type. For a native Google Docs/Sheets/etc. source
     # file, this is the *export target* type (e.g. .docx), not the
     # original application/vnd.google-apps.* type.
@@ -106,7 +122,10 @@ class MigrationItem(Base):
     # source_provider — see migrations_core.adapters.recreate_sharing.
     sharing = Column(JSON, nullable=True)
 
-    # planned -> copied / skipped / failed
+    # planned -> copied / skipped / failed / source_removed (terminal —
+    # set on a rescan when this item's source_path is gone from a fresh
+    # scan but it was already "copied"; the destination copy is never
+    # touched, this is purely informational — see _walk_and_plan)
     status = Column(String(20), nullable=False, default="planned")
     source_hash = Column(String(128), nullable=True)
     destination_hash = Column(String(128), nullable=True)

@@ -8,6 +8,7 @@ worker thread after the triggering request (and its session) has already
 completed.
 """
 import mimetypes
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from sqlalchemy.orm import Session
@@ -65,6 +66,7 @@ def add_mapping(
     source_container_id: str | None = None,
     destination_container_type: str | None = None,
     destination_container_id: str | None = None,
+    preserve_metadata: bool = True,
 ) -> MigrationUserMapping:
     mapping = MigrationUserMapping(
         job_id=job.id,
@@ -76,6 +78,7 @@ def add_mapping(
         source_container_id=source_container_id,
         destination_container_type=destination_container_type,
         destination_container_id=destination_container_id,
+        preserve_metadata=preserve_metadata,
         status="pending",
         stats={},
     )
@@ -130,7 +133,52 @@ def list_items(db: Session, mapping_id: int) -> list[MigrationItem]:
 # --- Pre-stage: plan without transferring bytes -----------------------------
 
 
+def _parse_source_modified(value) -> datetime | None:
+    """Each adapter normalizes its provider's own timestamp shape to an
+    ISO string (or None) under "source_modified_at" — see list_tree() in
+    each GoogleAdapter/DropboxAdapter/MicrosoftAdapter. Dropbox's
+    client_modified is a naive (no tzinfo) UTC datetime per Dropbox's own
+    API convention once isoformat()'d, so a value with no offset is
+    treated as UTC rather than left ambiguous."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 def _walk_and_plan(db: Session, job: MigrationJob, mapping: MigrationUserMapping) -> None:
+    """Builds (or, on a mapping that's already been run before, MERGES) the
+    plan for this mapping from a fresh source scan. This merge is what
+    makes pre-stage double as a second/delta pass — see the plan this was
+    built from (individual-migrations wizard work) for the full rationale.
+    Matches existing MigrationItem rows to the new scan by source_path:
+
+    - existing "copied" item, hash unchanged -> left completely alone
+      (zero writes; this is what makes a rescan of a huge, mostly-
+      unchanged tree cheap instead of a full re-copy).
+    - existing item (any status), hash changed or never successfully
+      copied -> snapshot fields refreshed in place, status reset to
+      "planned" for (re-)copying. destination_ref is deliberately left
+      as-is (not cleared) when one was already set from a prior
+      successful copy — that's the signal _copy_item uses to call
+      replace() instead of upload() for a genuine content update rather
+      than creating a second file.
+    - source_path with no existing row -> new "planned" item, same as
+      today's first-pass behavior.
+    - existing "copied" item whose source_path is missing from the new
+      scan (deleted at the source since last pass) -> status set to the
+      terminal "source_removed". The destination copy is never touched —
+      purely informational, matching the "nothing ever deletes" rule
+      this whole engine follows for the source side; extended here to
+      mean the engine never deletes at the destination either, even when
+      the source side has shrunk.
+    - existing item that was never successfully copied and is now
+      missing -> the row is just removed; it never had any destination-
+      side effect, so there's nothing to preserve or flag.
+    """
     source_adapter = get_adapter(job.source_provider)
     source_client = source_adapter.get_client(
         mapping.source_user_id, mapping.source_container_type, mapping.source_container_id
@@ -142,11 +190,16 @@ def _walk_and_plan(db: Session, job: MigrationJob, mapping: MigrationUserMapping
         source_client, mapping.source_root_path, mapping.source_container_type, mapping.source_container_id
     )
     tree = source_adapter.list_tree(source_client, source_root_ref)
+    scanned_paths = {entry["relative_path"] for entry in tree}
 
-    # Re-running prestage replaces the previous plan rather than duplicating it.
-    db.query(MigrationItem).filter(MigrationItem.mapping_id == mapping.id).delete()
+    existing_by_path = {
+        item.source_path: item
+        for item in db.query(MigrationItem).filter(MigrationItem.mapping_id == mapping.id).all()
+    }
 
     total_files = total_folders = total_bytes = total_skipped = 0
+    total_new = total_changed = total_removed = 0
+
     for entry in tree:
         sharing_snapshot = None
         if job.source_provider == "google":
@@ -155,22 +208,52 @@ def _walk_and_plan(db: Session, job: MigrationJob, mapping: MigrationUserMapping
             sharing_snapshot = {"anyone_with_link": True}
 
         skip_reason = entry.get("skip_reason")
-        db.add(
-            MigrationItem(
-                mapping_id=mapping.id,
-                source_path=entry["relative_path"],
-                destination_path=entry["relative_path"],
-                source_ref=entry["ref"],
-                mime_type=entry.get("mime_type"),
-                export_mime_type=entry.get("export_mime_type"),
-                is_folder=entry["is_folder"],
-                size_bytes=entry["size"],
-                source_hash=entry.get("native_hash"),
-                sharing=sharing_snapshot,
-                status="skipped" if skip_reason else "planned",
-                error=skip_reason,
+        new_hash = entry.get("native_hash")
+        new_modified = _parse_source_modified(entry.get("source_modified_at"))
+        existing = existing_by_path.get(entry["relative_path"])
+
+        if existing is None:
+            db.add(
+                MigrationItem(
+                    mapping_id=mapping.id,
+                    source_path=entry["relative_path"],
+                    destination_path=entry["relative_path"],
+                    source_ref=entry["ref"],
+                    mime_type=entry.get("mime_type"),
+                    export_mime_type=entry.get("export_mime_type"),
+                    is_folder=entry["is_folder"],
+                    size_bytes=entry["size"],
+                    source_hash=new_hash,
+                    source_modified_at=new_modified,
+                    sharing=sharing_snapshot,
+                    status="skipped" if skip_reason else "planned",
+                    error=skip_reason,
+                )
             )
-        )
+            if not skip_reason and not entry["is_folder"]:
+                total_new += 1
+        elif skip_reason:
+            existing.status, existing.error = "skipped", skip_reason
+        elif existing.status == "copied" and (entry["is_folder"] or existing.source_hash == new_hash):
+            pass  # unchanged (or a folder, which has no hash to compare) and already copied — untouched
+        else:
+            was_copied = existing.status == "copied"
+            existing.source_ref = entry["ref"]
+            existing.mime_type = entry.get("mime_type")
+            existing.export_mime_type = entry.get("export_mime_type")
+            existing.size_bytes = entry["size"]
+            existing.source_hash = new_hash
+            existing.source_modified_at = new_modified
+            existing.sharing = sharing_snapshot
+            existing.status = "planned"
+            existing.error = None
+            existing.verified = False
+            # destination_ref intentionally left as-is — _copy_item uses
+            # it to tell an update-in-place (replace) apart from a fresh
+            # create (upload) when this item is next copied.
+            if was_copied and not entry["is_folder"]:
+                total_changed += 1
+
         if skip_reason:
             total_skipped += 1
         elif entry["is_folder"]:
@@ -179,11 +262,23 @@ def _walk_and_plan(db: Session, job: MigrationJob, mapping: MigrationUserMapping
             total_files += 1
             total_bytes += entry["size"]
 
+    for path, item in existing_by_path.items():
+        if path in scanned_paths:
+            continue
+        if item.status == "copied":
+            item.status = "source_removed"
+            total_removed += 1
+        else:
+            db.delete(item)
+
     mapping.stats = {
         "planned_files": total_files,
         "planned_folders": total_folders,
         "planned_bytes": total_bytes,
         "skipped_items": total_skipped,
+        "new_since_last_scan": total_new,
+        "changed_since_last_scan": total_changed,
+        "removed_from_source_since_last_scan": total_removed,
     }
     db.commit()
 
@@ -246,6 +341,7 @@ def _copy_item(
     dest_client,
     dest_root_ref: str,
     folder_cache: dict,
+    preserve_metadata: bool = True,
 ) -> None:
     source_adapter = get_adapter(job.source_provider)
     dest_adapter = get_adapter(job.destination_provider)
@@ -275,25 +371,38 @@ def _copy_item(
 
     name = PurePosixPath(item.destination_path).name
     mime_type = item.mime_type or mimetypes.guess_type(name)[0]
+    modified_at = item.source_modified_at.isoformat() if preserve_metadata and item.source_modified_at else None
+
+    # A destination_ref already present means this is a delta-rescan's
+    # positively-identified update to a file THIS engine copied
+    # previously (see _walk_and_plan) — replace its content in place
+    # rather than creating a second file under an auto-renamed name.
+    is_update = bool(item.destination_ref)
 
     try:
-        result = dest_adapter.upload(dest_client, dest_parent_ref, name, data, mime_type)
+        if is_update:
+            result = dest_adapter.replace(dest_client, item.destination_ref, data, mime_type, modified_at)
+        else:
+            result = dest_adapter.upload(dest_client, dest_parent_ref, name, data, mime_type, modified_at)
     except Exception as e:
-        item.status, item.error = "failed", f"upload failed: {e}"
+        item.status, item.error = "failed", f"{'update' if is_update else 'upload'} failed: {e}"
         db.commit()
         return
 
     dest_hash = result.get("hash")
     verified = bool(dest_hash) and dest_adapter.compute_hash(data) == dest_hash
 
-    # A destination-side name collision with an unrelated pre-existing
-    # file gets auto-renamed by the provider (never overwritten — see
-    # dropbox_integration.upload_file_bytes / microsoft.upload_file_bytes)
-    # rather than raising, so reflect whatever name it actually landed
-    # under in our own records instead of the one we planned.
-    actual_name = result.get("name")
-    if actual_name and actual_name != name:
-        item.destination_path = str(PurePosixPath(item.destination_path).with_name(actual_name))
+    if not is_update:
+        # A destination-side name collision with an unrelated pre-existing
+        # file gets auto-renamed by the provider (never overwritten — see
+        # dropbox_integration.upload_file_bytes / microsoft.upload_file_bytes)
+        # rather than raising, so reflect whatever name it actually landed
+        # under in our own records instead of the one we planned. Doesn't
+        # apply to an update — replace() targets a known ref directly and
+        # never renames.
+        actual_name = result.get("name")
+        if actual_name and actual_name != name:
+            item.destination_path = str(PurePosixPath(item.destination_path).with_name(actual_name))
 
     item.destination_ref = result.get("ref")
     item.destination_hash = dest_hash
@@ -344,9 +453,13 @@ def _run_mapping(db: Session, job: MigrationJob, mapping: MigrationUserMapping) 
             if item.is_folder:
                 folder_cache[item.destination_path] = item.destination_ref
             continue
-        if item.status == "skipped":
-            continue  # e.g. a Google Form — no content to copy, not an error
-        _copy_item(db, job, item, source_client, dest_client, dest_root_ref, folder_cache)
+        if item.status in ("skipped", "source_removed"):
+            # "skipped": e.g. a Google Form — no content to copy, not an
+            # error. "source_removed": a rescan found this gone from the
+            # source since it was copied — nothing to (re-)copy, and the
+            # destination is deliberately never touched for this case.
+            continue
+        _copy_item(db, job, item, source_client, dest_client, dest_root_ref, folder_cache, mapping.preserve_metadata)
 
     items = list_items(db, mapping.id)
     mapping.stats = {

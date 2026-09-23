@@ -134,6 +134,7 @@ def add_mapping(
         body.destination_user_id,
         body.source_root_path,
         body.destination_root_path,
+        preserve_metadata=body.preserve_metadata,
     )
 
 

@@ -9,9 +9,25 @@ integrations_core's tables through its own `db` session, keeping the two
 modules' database engines properly separate even though, today, they
 happen to point at the same physical database.
 """
+from datetime import datetime
+
 from shared.integrations_core import dropbox_integration, google as google_integration, microsoft as microsoft_integration
 from shared.integrations_core import service as integrations_service
 from shared.integrations_core.db import SessionLocal as IntegrationsSessionLocal
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    """upload()/replace()'s modified_at is an ISO string at the adapter
+    interface level (Google/Microsoft both take that directly) — only
+    Dropbox's underlying SDK call wants an actual datetime object, so
+    that conversion happens here rather than leaking Dropbox's own
+    quirk up into service.py."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def user_has_provider_connected(user_id: int, provider: str) -> bool:
@@ -83,8 +99,24 @@ class ProviderAdapter:
     def download(self, client, ref, export_mime_type: str | None = None) -> bytes:
         raise NotImplementedError
 
-    def upload(self, client, parent_ref, name: str, data: bytes, mime_type: str | None) -> dict:
-        """Returns {"ref": ..., "hash": ...}."""
+    def upload(self, client, parent_ref, name: str, data: bytes, mime_type: str | None, modified_at: str | None = None) -> dict:
+        """Creates a NEW file. Returns {"ref": ..., "hash": ..., "name": ...}
+        — "name" reflects whatever the provider actually assigned, which
+        can differ from the requested `name` on a same-name collision
+        (auto-renamed, never overwritten — see each provider's own
+        upload_file_bytes). modified_at (ISO string), when given,
+        preserves the source's own last-modified time on the new file."""
+        raise NotImplementedError
+
+    def replace(self, client, ref, data: bytes, mime_type: str | None, modified_at: str | None = None) -> dict:
+        """Replaces the CONTENT of an already-known destination file by
+        its exact ref — used only for a delta-rescan's positively-
+        identified update to a file THIS ENGINE copied itself previously
+        (service.py's _copy_item branches here when item.destination_ref
+        is already set), never for a fresh item. Safe to actually
+        overwrite here, unlike upload(): `ref` is a known prior write of
+        ours, not a name guess that might collide with something
+        unrelated. Returns {"ref": ..., "hash": ...}."""
         raise NotImplementedError
 
     def compute_hash(self, data: bytes) -> str:
@@ -173,6 +205,7 @@ class GoogleAdapter(ProviderAdapter):
                     "skip_reason": skip_reason,
                     "ref": f["id"],
                     "permissions": f.get("permissions") or [],
+                    "source_modified_at": f.get("modifiedTime"),
                 }
             )
         return result
@@ -187,13 +220,18 @@ class GoogleAdapter(ProviderAdapter):
             return google_integration.export_file_bytes(service, ref, export_mime_type)
         return google_integration.download_file_bytes(service, ref, drive_id)
 
-    def upload(self, client, parent_ref, name, data, mime_type):
+    def upload(self, client, parent_ref, name, data, mime_type, modified_at=None):
         service, drive_id = client
-        result = google_integration.upload_file_bytes(service, parent_ref, name, data, mime_type, drive_id)
+        result = google_integration.upload_file_bytes(service, parent_ref, name, data, mime_type, drive_id, modified_at)
         # Drive allows duplicate names and never overwrites, so the
         # requested name is always the actual one — echoed back for
         # interface consistency with Dropbox/Microsoft, which may rename.
         return {"ref": result["id"], "hash": result.get("md5Checksum"), "name": name}
+
+    def replace(self, client, ref, data, mime_type, modified_at=None):
+        service, _drive_id = client
+        result = google_integration.update_file_bytes(service, ref, data, mime_type, modified_at)
+        return {"ref": result["id"], "hash": result.get("md5Checksum")}
 
     def compute_hash(self, data):
         return google_integration.compute_md5(data)
@@ -250,6 +288,7 @@ class DropboxAdapter(ProviderAdapter):
                 "mime_type": None,
                 "ref": f["path"],
                 "anyone_with_link": f.get("anyone_with_link", False),
+                "source_modified_at": f["client_modified"].isoformat() if f.get("client_modified") else None,
             }
             for f in tree
         ]
@@ -261,10 +300,14 @@ class DropboxAdapter(ProviderAdapter):
     def download(self, client, ref, export_mime_type=None):
         return dropbox_integration.download_file_bytes(client, ref)
 
-    def upload(self, client, parent_ref, name, data, mime_type):
+    def upload(self, client, parent_ref, name, data, mime_type, modified_at=None):
         dest_path = f"{parent_ref}/{name}" if parent_ref else f"/{name}"
-        result = dropbox_integration.upload_file_bytes(client, dest_path, data)
+        result = dropbox_integration.upload_file_bytes(client, dest_path, data, _parse_iso(modified_at))
         return {"ref": result["path"], "hash": result.get("content_hash"), "name": result.get("name", name)}
+
+    def replace(self, client, ref, data, mime_type, modified_at=None):
+        result = dropbox_integration.replace_file_bytes(client, ref, data, _parse_iso(modified_at))
+        return {"ref": result["path"], "hash": result.get("content_hash")}
 
     def compute_hash(self, data):
         return dropbox_integration.compute_dropbox_content_hash(data)
@@ -327,9 +370,13 @@ class MicrosoftAdapter(ProviderAdapter):
         access_token, base_path = client
         return microsoft_integration.download_file_bytes(access_token, ref, base_path)
 
-    def upload(self, client, parent_ref, name, data, mime_type):
+    def upload(self, client, parent_ref, name, data, mime_type, modified_at=None):
         access_token, base_path = client
-        return microsoft_integration.upload_file_bytes(access_token, parent_ref, name, data, base_path)
+        return microsoft_integration.upload_file_bytes(access_token, parent_ref, name, data, base_path, modified_at)
+
+    def replace(self, client, ref, data, mime_type, modified_at=None):
+        access_token, base_path = client
+        return microsoft_integration.replace_file_bytes(access_token, ref, data, base_path, modified_at)
 
     def compute_hash(self, data):
         return microsoft_integration.compute_quickxorhash(data)
