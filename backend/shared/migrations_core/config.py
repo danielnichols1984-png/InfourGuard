@@ -11,6 +11,11 @@ class MigrationsSettings(BaseSettings):
 
     DATABASE_URL: str = Field(validation_alias="MIGRATIONS_DATABASE_URL")
 
+    # How many files a single mapping copies concurrently during a run.
+    # Bounded and env-tunable in case a provider's rate limits need a lower
+    # number in practice than what's safe in principle.
+    MAX_PARALLEL_WORKERS: int = Field(default=4, validation_alias="MIGRATIONS_MAX_PARALLEL_WORKERS")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

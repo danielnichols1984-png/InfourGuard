@@ -8,6 +8,8 @@ worker thread after the triggering request (and its session) has already
 completed.
 """
 import mimetypes
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
@@ -15,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from shared.integrations_core.email_utils import send_email
 from shared.migrations_core.adapters import get_adapter, recreate_sharing
+from shared.migrations_core.config import settings
 from shared.migrations_core.db import SessionLocal
 from shared.migrations_core.models import MigrationItem, MigrationJob, MigrationUserMapping
 
@@ -314,6 +317,14 @@ def run_prestage(job_id: int) -> None:
 # --- Full run: the actual copy ----------------------------------------------
 
 
+# Guards the "not in folder_cache yet" branch below. By the time the
+# parallel file-copy phase runs, every folder should already be in
+# folder_cache (created up front, single-threaded) — this lock only exists
+# so a still-missing folder can't get created twice by two worker threads
+# racing the same cache miss.
+_folder_creation_lock = threading.Lock()
+
+
 def _resolve_dest_parent(dest_adapter, dest_client, dest_root_ref, item: MigrationItem, folder_cache: dict) -> str:
     parent = str(PurePosixPath(item.destination_path).parent)
     if parent in (".", "/", ""):
@@ -321,16 +332,19 @@ def _resolve_dest_parent(dest_adapter, dest_client, dest_root_ref, item: Migrati
     if parent in folder_cache:
         return folder_cache[parent]
 
-    ref = dest_root_ref
-    accumulated = ""
-    for part in parent.split("/"):
-        accumulated = f"{accumulated}/{part}" if accumulated else part
-        if accumulated in folder_cache:
-            ref = folder_cache[accumulated]
-        else:
-            ref = dest_adapter.ensure_child_folder(dest_client, ref, part)
-            folder_cache[accumulated] = ref
-    return ref
+    with _folder_creation_lock:
+        if parent in folder_cache:
+            return folder_cache[parent]
+        ref = dest_root_ref
+        accumulated = ""
+        for part in parent.split("/"):
+            accumulated = f"{accumulated}/{part}" if accumulated else part
+            if accumulated in folder_cache:
+                ref = folder_cache[accumulated]
+            else:
+                ref = dest_adapter.ensure_child_folder(dest_client, ref, part)
+                folder_cache[accumulated] = ref
+        return ref
 
 
 def _copy_item(
@@ -424,6 +438,55 @@ def _copy_item(
     db.commit()
 
 
+_thread_local = threading.local()
+
+
+def _get_thread_clients(source_adapter, dest_adapter, mapping_ctx: dict):
+    """One provider client pair per worker thread, built lazily on first
+    use and reused for every file that thread goes on to process —
+    get_client() does its own small DB round trip, not worth repeating per
+    file. Safe across separate _run_mapping() calls because each one opens
+    (and fully tears down) its own ThreadPoolExecutor, so a worker thread
+    is never reused across two different mappings/credentials."""
+    if not hasattr(_thread_local, "clients"):
+        source_client = source_adapter.get_client(
+            mapping_ctx["source_user_id"], mapping_ctx["source_container_type"], mapping_ctx["source_container_id"]
+        )
+        dest_client = dest_adapter.get_client(
+            mapping_ctx["destination_user_id"],
+            mapping_ctx["destination_container_type"],
+            mapping_ctx["destination_container_id"],
+        )
+        _thread_local.clients = (source_client, dest_client)
+    return _thread_local.clients
+
+
+def _copy_item_threadsafe(job_id: int, item_id: int, mapping_ctx: dict, dest_root_ref: str, folder_cache: dict) -> None:
+    """Runs one file's copy on its own DB session — SQLAlchemy sessions
+    aren't thread-safe, so this can't share the session _run_mapping used
+    to build the item list. Any failure here, including setup itself and
+    not just the copy, is caught and recorded on the item rather than
+    raised, so one bad file can't take down the rest of the parallel
+    batch."""
+    db = SessionLocal()
+    try:
+        job = db.get(MigrationJob, job_id)
+        item = db.get(MigrationItem, item_id)
+        source_adapter = get_adapter(job.source_provider)
+        dest_adapter = get_adapter(job.destination_provider)
+        source_client, dest_client = _get_thread_clients(source_adapter, dest_adapter, mapping_ctx)
+        _copy_item(
+            db, job, item, source_client, dest_client, dest_root_ref, folder_cache, mapping_ctx["preserve_metadata"]
+        )
+    except Exception as e:
+        db.rollback()
+        item = db.get(MigrationItem, item_id)
+        item.status, item.error = "failed", f"unexpected error: {e}"
+        db.commit()
+    finally:
+        db.close()
+
+
 def _run_mapping(db: Session, job: MigrationJob, mapping: MigrationUserMapping) -> None:
     source_adapter = get_adapter(job.source_provider)
     dest_adapter = get_adapter(job.destination_provider)
@@ -448,6 +511,7 @@ def _run_mapping(db: Session, job: MigrationJob, mapping: MigrationUserMapping) 
     items.sort(key=lambda i: (i.destination_path.count("/"), not i.is_folder))
 
     folder_cache: dict[str, str] = {}
+    folders, files = [], []
     for item in items:
         if item.status == "copied":
             if item.is_folder:
@@ -459,8 +523,44 @@ def _run_mapping(db: Session, job: MigrationJob, mapping: MigrationUserMapping) 
             # source since it was copied — nothing to (re-)copy, and the
             # destination is deliberately never touched for this case.
             continue
+        (folders if item.is_folder else files).append(item)
+
+    # Phase 1: folders, sequential, in depth order (guaranteed by the sort
+    # above) — every file's parent must exist before that file can be
+    # uploaded into it, and creating two folders concurrently risks a
+    # provider-side duplicate.
+    for item in folders:
         _copy_item(db, job, item, source_client, dest_client, dest_root_ref, folder_cache, mapping.preserve_metadata)
 
+    # Phase 2: files, in parallel — each is an independent, I/O-bound
+    # download+upload with no dependency on any other file now that every
+    # folder from Phase 1 is already in folder_cache.
+    if files:
+        mapping_ctx = {
+            "source_user_id": mapping.source_user_id,
+            "source_container_type": mapping.source_container_type,
+            "source_container_id": mapping.source_container_id,
+            "destination_user_id": mapping.destination_user_id,
+            "destination_container_type": mapping.destination_container_type,
+            "destination_container_id": mapping.destination_container_id,
+            "preserve_metadata": mapping.preserve_metadata,
+        }
+        with ThreadPoolExecutor(max_workers=settings.MAX_PARALLEL_WORKERS) as executor:
+            futures = [
+                executor.submit(_copy_item_threadsafe, job.id, item.id, mapping_ctx, dest_root_ref, folder_cache)
+                for item in files
+            ]
+            for future in as_completed(futures):
+                # _copy_item_threadsafe catches everything itself and
+                # records failures on the item — .result() here is just to
+                # surface a truly unexpected bug loudly rather than
+                # swallow it silently.
+                future.result()
+
+    # The parallel workers each committed on their own session — expire
+    # this session's cached objects so the recount below reflects those
+    # commits rather than whatever was already loaded before Phase 2 ran.
+    db.expire_all()
     items = list_items(db, mapping.id)
     mapping.stats = {
         **(mapping.stats or {}),
